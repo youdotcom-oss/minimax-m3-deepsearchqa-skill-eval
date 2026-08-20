@@ -57,6 +57,8 @@ cat data/summary.json
 
 `FORCE=1` clears prior generated artifacts for the command, which is useful when rerunning a smoke after code changes. Without `FORCE=1`, `generate` and `grade` resume from existing `data/` files.
 
+The smoke run validates plumbing. A score of `0` can still be a valid smoke result if the model missed the answer. Check that `process.totalToolCalls` is greater than `0` and that `data/graded.jsonl` does not show `adapter_invalid_result`.
+
 If the smoke succeeds, run the full local eval:
 
 ```sh
