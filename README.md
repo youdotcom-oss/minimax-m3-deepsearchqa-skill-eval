@@ -54,6 +54,7 @@ bun run check       # typecheck + tests
 - Thinking level: `medium`
 - Judge: `deepseek/deepseek-v4-flash-0731`
 - Judge fallback: `qwen/qwen3.6-flash`
+- Adapter stdout cap: `50_000_000` bytes per trial
 
 ## Metrics
 

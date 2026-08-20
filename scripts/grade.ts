@@ -9,7 +9,9 @@ const SUMMARY_PATH = readStringEnv("SUMMARY_PATH", "data/summary.json");
 const TMP_TRIALS_PATH = readStringEnv("TMP_GRADE_TRIALS_PATH", ".tmp/grade-trials.jsonl");
 const TMP_OUTPUT_PATH = readStringEnv("TMP_GRADE_OUTPUT_PATH", ".tmp/grade-output.jsonl");
 const K = readIntegerEnv("K", 3, 1);
-const CONCURRENCY = readIntegerEnv("GRADE_CONCURRENCY", 3, 1);
+const CONCURRENCY = process.env.GRADE_CONCURRENCY === undefined || process.env.GRADE_CONCURRENCY === ""
+  ? readIntegerEnv("CONCURRENCY", 3, 1)
+  : readIntegerEnv("GRADE_CONCURRENCY", 3, 1);
 const MODEL = readStringEnv("MODEL", "minimax/minimax-m3");
 const GRADER_TIMEOUT_MS = readIntegerEnv("GRADER_TIMEOUT_MS", 240_000, 1);
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeMessageRole } from "../src/adapter.ts";
 import { scoreJudgeResult } from "../src/grader.ts";
 import { buildSummary, f1Score } from "../src/summary.ts";
 
@@ -52,6 +53,14 @@ describe("summary metrics", () => {
     expect(summary.adjusted.averageScore).toBeCloseTo(0.75, 8);
     expect(summary.adjusted.exactPassAtK).toBe(1);
     expect(summary.ungradableTrialCount).toBe(1);
+  });
+});
+
+describe("adapter schema compatibility", () => {
+  test("maps Pi toolResult messages to harness tool messages", () => {
+    expect(normalizeMessageRole("toolResult")).toBe("tool");
+    expect(normalizeMessageRole("assistant")).toBe("assistant");
+    expect(normalizeMessageRole("unexpected")).toBeUndefined();
   });
 });
 

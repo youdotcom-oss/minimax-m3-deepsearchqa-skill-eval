@@ -13,6 +13,7 @@ interface TrajectoryEvent extends Record<string, unknown> {
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const HARNESS_MESSAGE_ROLES = new Set(["user", "assistant", "system", "tool"]);
 const SYSTEM_PROMPT =
   "You are an autonomous research agent. Answer the user's question using the available tools. " +
   "Ground factual claims in sources, include inline citations, and list sources at the end. Do not ask clarifying questions.";
@@ -113,7 +114,12 @@ function numberValue(value: unknown): number | undefined {
 
 function roleFrom(message: JsonObject | undefined): string | undefined {
   const role = message?.role;
-  return typeof role === "string" ? role : undefined;
+  return normalizeMessageRole(role);
+}
+
+export function normalizeMessageRole(role: unknown): "user" | "assistant" | "system" | "tool" | undefined {
+  if (role === "toolResult") return "tool";
+  return typeof role === "string" && HARNESS_MESSAGE_ROLES.has(role) ? (role as "user" | "assistant" | "system" | "tool") : undefined;
 }
 
 function messageContent(message: JsonObject | undefined): string {
