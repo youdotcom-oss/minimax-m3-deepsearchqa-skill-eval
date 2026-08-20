@@ -88,5 +88,6 @@ bun run upload
 `summary.json` also reports cost:
 
 - `modelCostUsd` from OpenRouter usage metadata.
-- `youApiCostUsd` estimated from You.com pricing, currently `$5/1k` Search calls and `$1/1k` Contents pages.
+- `youApiCostUsd` estimated from You.com pricing, currently `$5/1k` Search calls and `$1/1k` full-page extraction or Contents pages.
+- `searchExtractionPages` and `searchExtractionCostUsd` for Search `extraction_mode: "full_page"` pages, counted across web and news results.
 - `totalCostUsd` as model plus You.com API cost.

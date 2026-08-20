@@ -41,9 +41,9 @@ describe("answer scoring", () => {
 describe("summary metrics", () => {
   test("raw includes ungradable rows while adjusted excludes them", () => {
     const rows = [
-      row("deepsearchqa-1", 0, 1, true, true, 0.25, 0.01),
-      row("deepsearchqa-1", 1, 0.5, false, true, 0.75, 0.02),
-      row("deepsearchqa-110", 0, 0, false, false, 0.5, 0.03),
+      row("deepsearchqa-1", 0, 1, true, true, { modelCostUsd: 0.25, youApiCostUsd: 0.01, searchCalls: 2, searchCostUsd: 0.01 }),
+      row("deepsearchqa-1", 1, 0.5, false, true, { modelCostUsd: 0.75, youApiCostUsd: 0.02, searchExtractionPages: 20, searchExtractionCostUsd: 0.02 }),
+      row("deepsearchqa-110", 0, 0, false, false, { modelCostUsd: 0.5, youApiCostUsd: 0.03, contentsPages: 30, contentsCostUsd: 0.03 }),
     ];
     const summary = buildSummary(rows, { k: 2, model: "minimax/minimax-m3" });
     expect(summary.raw.trialCount).toBe(3);
@@ -58,6 +58,12 @@ describe("summary metrics", () => {
     expect(summary.cost.modelCostUsd).toBeCloseTo(1.5, 8);
     expect(summary.cost.youApiCostUsd).toBeCloseTo(0.06, 8);
     expect(summary.cost.totalCostUsd).toBeCloseTo(1.56, 8);
+    expect(summary.cost.searchCalls).toBe(2);
+    expect(summary.cost.searchExtractionPages).toBe(20);
+    expect(summary.cost.contentsPages).toBe(30);
+    expect(summary.cost.searchCostUsd).toBeCloseTo(0.01, 8);
+    expect(summary.cost.searchExtractionCostUsd).toBeCloseTo(0.02, 8);
+    expect(summary.cost.contentsCostUsd).toBeCloseTo(0.03, 8);
     expect(summary.cost.averageTotalCostUsdPerTrial).toBeCloseTo(0.52, 8);
     expect(summary.cost.adjustedTotalCostUsd).toBeCloseTo(1.03, 8);
     expect(summary.cost.adjustedAverageTotalCostUsdPerTrial).toBeCloseTo(0.515, 8);
@@ -65,14 +71,21 @@ describe("summary metrics", () => {
 });
 
 describe("You.com cost estimation", () => {
-  test("estimates dash-cased search and contents costs", () => {
+  test("estimates dash-cased search, full-page extraction, and contents costs", () => {
     const cost = estimateYouApiUsage([
       { type: "tool_call", name: "you-search", status: "started", input: { query: "x" } },
       {
         type: "tool_call",
         name: "you-search",
         status: "completed",
-        output: { details: { results: { web: [{ contents: { markdown: "page" } }, { title: "plain" }] } } },
+        output: {
+          details: {
+            results: {
+              web: Array.from({ length: 10 }, (_, index) => ({ url: `https://example.com/web-${index}`, contents: { markdown: "page" } })),
+              news: Array.from({ length: 10 }, (_, index) => ({ url: `https://example.com/news-${index}`, contents: { markdown: "page" } })),
+            },
+          },
+        },
       },
       {
         type: "tool_call",
@@ -83,10 +96,13 @@ describe("You.com cost estimation", () => {
     ]);
 
     expect(cost.searchCalls).toBe(1);
-    expect(cost.searchExtractionPages).toBe(1);
+    expect(cost.searchExtractionPages).toBe(20);
     expect(cost.contentsCalls).toBe(1);
     expect(cost.contentsPages).toBe(2);
-    expect(cost.costUsd).toBeCloseTo(0.008, 8);
+    expect(cost.searchCostUsd).toBeCloseTo(0.005, 8);
+    expect(cost.searchExtractionCostUsd).toBeCloseTo(0.02, 8);
+    expect(cost.contentsCostUsd).toBeCloseTo(0.002, 8);
+    expect(cost.costUsd).toBeCloseTo(0.027, 8);
   });
 });
 
@@ -109,13 +125,42 @@ describe("adapter schema compatibility", () => {
   });
 });
 
-function row(taskId: string, trialIndex: number, score: number, pass: boolean, gradable: boolean, modelCostUsd = 0, youApiCostUsd = 0): object {
+function row(
+  taskId: string,
+  trialIndex: number,
+  score: number,
+  pass: boolean,
+  gradable: boolean,
+  cost: {
+    modelCostUsd?: number;
+    youApiCostUsd?: number;
+    searchCalls?: number;
+    searchExtractionPages?: number;
+    contentsCalls?: number;
+    contentsPages?: number;
+    searchCostUsd?: number;
+    searchExtractionCostUsd?: number;
+    contentsCostUsd?: number;
+  } = {},
+): object {
   return {
     taskId,
     trialIndex,
     trial: {
       task: { metadata: { expected_answer: gradable ? "gold" : null, gradable } },
-      metadata: { usage: { costUsd: modelCostUsd }, youApiUsage: { costUsd: youApiCostUsd } },
+      metadata: {
+        usage: { costUsd: cost.modelCostUsd ?? 0 },
+        youApiUsage: {
+          costUsd: cost.youApiCostUsd ?? 0,
+          searchCalls: cost.searchCalls ?? 0,
+          searchExtractionPages: cost.searchExtractionPages ?? 0,
+          contentsCalls: cost.contentsCalls ?? 0,
+          contentsPages: cost.contentsPages ?? 0,
+          searchCostUsd: cost.searchCostUsd ?? 0,
+          searchExtractionCostUsd: cost.searchExtractionCostUsd ?? 0,
+          contentsCostUsd: cost.contentsCostUsd ?? 0,
+        },
+      },
     },
     process: { toolCallCount: 2, failedToolCallCount: 0, errorCount: 0 },
     graderResults: [

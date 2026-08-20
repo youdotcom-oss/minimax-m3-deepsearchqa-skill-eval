@@ -1,7 +1,7 @@
 import type { JsonObject } from "./io.ts";
 
 const SEARCH_COST_USD_PER_CALL = 5 / 1_000;
-const CONTENTS_COST_USD_PER_PAGE = 1 / 1_000;
+const PAGE_EXTRACTION_COST_USD_PER_PAGE = 1 / 1_000;
 
 export interface YouApiCostSummary extends JsonObject {
   searchCalls: number;
@@ -42,8 +42,8 @@ export function estimateYouApiUsage(
   }
 
   const searchCostUsd = searchCalls * SEARCH_COST_USD_PER_CALL;
-  const searchExtractionCostUsd = searchExtractionPages * CONTENTS_COST_USD_PER_PAGE;
-  const contentsCostUsd = contentsPages * CONTENTS_COST_USD_PER_PAGE;
+  const searchExtractionCostUsd = searchExtractionPages * PAGE_EXTRACTION_COST_USD_PER_PAGE;
+  const contentsCostUsd = contentsPages * PAGE_EXTRACTION_COST_USD_PER_PAGE;
   const costUsd = searchCostUsd + searchExtractionCostUsd + contentsCostUsd;
 
   return {
@@ -79,6 +79,8 @@ function countSearchExtractionPages(output: JsonObject | undefined): number {
   return countResultsWithContents(results.web) + countResultsWithContents(results.news);
 }
 
+// Search full_page extraction is billed per extracted web/news result.
+// The response indicates those pages by adding a non-empty `contents` object.
 function countResultsWithContents(value: unknown): number {
   if (!Array.isArray(value)) return 0;
   return value.filter((result) => {

@@ -18,6 +18,13 @@ export interface ScoredTrial {
   totalTokens: number;
   costUsd: number;
   youApiCostUsd: number;
+  searchCalls: number;
+  searchExtractionPages: number;
+  contentsCalls: number;
+  contentsPages: number;
+  searchCostUsd: number;
+  searchExtractionCostUsd: number;
+  contentsCostUsd: number;
 }
 
 export interface MetricBlock {
@@ -49,6 +56,13 @@ export interface Summary {
     modelCostUsd: number;
     youApiCostUsd: number;
     totalCostUsd: number;
+    searchCalls: number;
+    searchExtractionPages: number;
+    contentsCalls: number;
+    contentsPages: number;
+    searchCostUsd: number;
+    searchExtractionCostUsd: number;
+    contentsCostUsd: number;
     averageTotalCostUsdPerTrial: number;
     averageTotalCostUsdPerTask: number;
     adjustedTotalCostUsd: number;
@@ -141,6 +155,13 @@ function computeCostBlock(rows: ScoredTrial[], adjustedRows: ScoredTrial[]): Sum
     modelCostUsd,
     youApiCostUsd,
     totalCostUsd,
+    searchCalls: sum(rows.map((row) => row.searchCalls)),
+    searchExtractionPages: sum(rows.map((row) => row.searchExtractionPages)),
+    contentsCalls: sum(rows.map((row) => row.contentsCalls)),
+    contentsPages: sum(rows.map((row) => row.contentsPages)),
+    searchCostUsd: sum(rows.map((row) => row.searchCostUsd)),
+    searchExtractionCostUsd: sum(rows.map((row) => row.searchExtractionCostUsd)),
+    contentsCostUsd: sum(rows.map((row) => row.contentsCostUsd)),
     averageTotalCostUsdPerTrial: rows.length ? totalCostUsd / rows.length : 0,
     averageTotalCostUsdPerTask: taskCount ? totalCostUsd / taskCount : 0,
     adjustedTotalCostUsd,
@@ -184,6 +205,13 @@ function toScoredTrial(row: unknown): ScoredTrial {
     totalTokens: numberValue(usage.totalTokens),
     costUsd: numberValue(usage.costUsd),
     youApiCostUsd: numberValue(youApiUsage.costUsd),
+    searchCalls: numberValue(youApiUsage.searchCalls),
+    searchExtractionPages: numberValue(youApiUsage.searchExtractionPages),
+    contentsCalls: numberValue(youApiUsage.contentsCalls),
+    contentsPages: numberValue(youApiUsage.contentsPages),
+    searchCostUsd: numberValue(youApiUsage.searchCostUsd),
+    searchExtractionCostUsd: numberValue(youApiUsage.searchExtractionCostUsd),
+    contentsCostUsd: numberValue(youApiUsage.contentsCostUsd),
   };
 }
 
