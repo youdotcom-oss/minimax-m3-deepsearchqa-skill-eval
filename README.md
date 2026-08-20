@@ -46,6 +46,29 @@ bun run eval:upload # eval + upload
 bun run check       # typecheck + tests
 ```
 
+## Usage
+
+Start with a one-question smoke run before launching the full eval:
+
+```sh
+FORCE=1 LIMIT=1 K=1 CONCURRENCY=1 bun run eval
+cat data/summary.json
+```
+
+`FORCE=1` clears prior generated artifacts for the command, which is useful when rerunning a smoke after code changes. Without `FORCE=1`, `generate` and `grade` resume from existing `data/` files.
+
+If the smoke succeeds, run the full local eval:
+
+```sh
+caffeinate -dimsu bun run eval
+```
+
+Then upload the generated artifacts:
+
+```sh
+bun run upload
+```
+
 ## Defaults
 
 - Model: `minimax/minimax-m3`
