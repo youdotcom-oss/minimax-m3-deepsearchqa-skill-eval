@@ -1,0 +1,157 @@
+import { writeJsonl } from "./io.ts";
+
+type JsonObject = Record<string, unknown>;
+
+export interface ScoredTrial {
+  taskId: string;
+  trialIndex: number;
+  score: number;
+  pass: boolean;
+  gradable: boolean;
+  toolCallCount?: number;
+  failedToolCallCount?: number;
+  errorCount?: number;
+}
+
+export interface MetricBlock {
+  trialCount: number;
+  taskCount: number;
+  averageScore: number;
+  passCount: number;
+  passRate: number;
+  exactPassAtKCount: number;
+  exactPassAtK: number;
+}
+
+export interface Summary {
+  generatedAt: string;
+  label: string | null;
+  model: string;
+  k: number;
+  raw: MetricBlock;
+  adjusted: MetricBlock;
+  ungradableTrialCount: number;
+  ungradableTaskCount: number;
+  process: {
+    totalToolCalls: number;
+    averageToolCallsPerTrial: number;
+    failedToolCallCount: number;
+    errorCount: number;
+  };
+}
+
+export function f1Score(correctCount: number, expectedCount: number, excessiveCount: number): number {
+  if (expectedCount <= 0) return 0;
+  const safeCorrect = Math.max(0, Math.min(correctCount, expectedCount));
+  const safeExcessive = Math.max(0, excessiveCount);
+  const precisionDenominator = safeCorrect + safeExcessive;
+  const precision = precisionDenominator === 0 ? 0 : safeCorrect / precisionDenominator;
+  const recall = safeCorrect / expectedCount;
+  if (precision + recall === 0) return 0;
+  return (2 * precision * recall) / (precision + recall);
+}
+
+export function buildSummary(rows: unknown[], options: { k: number; model: string }): Summary {
+  const scoredRows = rows.map(toScoredTrial);
+  return {
+    generatedAt: new Date().toISOString(),
+    label: readLabel(rows),
+    model: options.model,
+    k: options.k,
+    raw: computeMetricBlock(scoredRows),
+    adjusted: computeMetricBlock(scoredRows.filter((row) => row.gradable)),
+    ungradableTrialCount: scoredRows.filter((row) => !row.gradable).length,
+    ungradableTaskCount: new Set(scoredRows.filter((row) => !row.gradable).map((row) => row.taskId)).size,
+    process: {
+      totalToolCalls: sum(scoredRows.map((row) => row.toolCallCount ?? 0)),
+      averageToolCallsPerTrial: scoredRows.length ? sum(scoredRows.map((row) => row.toolCallCount ?? 0)) / scoredRows.length : 0,
+      failedToolCallCount: sum(scoredRows.map((row) => row.failedToolCallCount ?? 0)),
+      errorCount: sum(scoredRows.map((row) => row.errorCount ?? 0)),
+    },
+  };
+}
+
+export async function writeSummary(path: string, rows: unknown[], options: { k: number; model: string }): Promise<Summary> {
+  const summary = buildSummary(dedupeLatestRows(rows), options);
+  await Bun.write(path, JSON.stringify(summary, null, 2) + "\n");
+  return summary;
+}
+
+export function dedupeLatestRows<T>(rows: T[]): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of rows) {
+    const object = asObject(row);
+    const taskId = String(object?.taskId ?? "");
+    const trialIndex = String(object?.trialIndex ?? "");
+    if (!taskId || !trialIndex) continue;
+    byKey.set(`${taskId}\t${trialIndex}`, row);
+  }
+  return [...byKey.values()];
+}
+
+export async function writeRowsForHarness(path: string, rows: unknown[]): Promise<void> {
+  await writeJsonl(path, rows);
+}
+
+function computeMetricBlock(rows: ScoredTrial[]): MetricBlock {
+  const taskIds = new Set(rows.map((row) => row.taskId));
+  const passingTasks = new Set(rows.filter((row) => row.pass).map((row) => row.taskId));
+  const passCount = rows.filter((row) => row.pass).length;
+  return {
+    trialCount: rows.length,
+    taskCount: taskIds.size,
+    averageScore: rows.length ? sum(rows.map((row) => row.score)) / rows.length : 0,
+    passCount,
+    passRate: rows.length ? passCount / rows.length : 0,
+    exactPassAtKCount: passingTasks.size,
+    exactPassAtK: taskIds.size ? passingTasks.size / taskIds.size : 0,
+  };
+}
+
+function toScoredTrial(row: unknown): ScoredTrial {
+  const object = asObject(row) ?? {};
+  const trial = asObject(object.trial) ?? {};
+  const task = asObject(trial.task) ?? {};
+  const metadata = asObject(task.metadata) ?? {};
+  const process = asObject(object.process) ?? {};
+  const answerResult = Array.isArray(object.graderResults)
+    ? object.graderResults.map(asObject).find((result) => result?.id === "deepsearchqa-answer")
+    : undefined;
+  const outcome = asObject(answerResult?.outcome) ?? {};
+  const gradable = typeof outcome.gradable === "boolean" ? outcome.gradable : metadata.gradable !== false && metadata.expected_answer != null && metadata.expected_answer !== "";
+  const score = gradable ? clamp01(numberValue(answerResult?.score ?? object.score)) : 0;
+  return {
+    taskId: String(object.taskId ?? ""),
+    trialIndex: numberValue(object.trialIndex),
+    score,
+    pass: gradable && Boolean(answerResult?.pass ?? object.pass) && score >= 0.8,
+    gradable,
+    toolCallCount: numberValue(process.toolCallCount),
+    failedToolCallCount: numberValue(process.failedToolCallCount),
+    errorCount: numberValue(process.errorCount),
+  };
+}
+
+function readLabel(rows: unknown[]): string | null {
+  for (const row of rows) {
+    const label = asObject(row)?.label;
+    if (typeof label === "string") return label;
+  }
+  return null;
+}
+
+function asObject(value: unknown): JsonObject | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : undefined;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}

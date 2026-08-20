@@ -1,0 +1,26 @@
+{
+  "name": "minimax-m3-deepsearchqa-skill-eval",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "scaffold": "bun run scripts/scaffold.ts",
+    "generate": "bun run scripts/generate.ts",
+    "grade": "bun run scripts/grade.ts",
+    "eval": "bun run scaffold && bun run generate && bun run grade",
+    "upload": "bun run scripts/upload.ts",
+    "eval:upload": "bun run eval && bun run upload",
+    "check": "bun run typecheck && bun test",
+    "typecheck": "bun --bun tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.79.6",
+    "@earendil-works/pi-coding-agent": "^0.79.6",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@plaited/agent-eval-harness": "^1.0.1",
+    "typebox": "^1.2.16"
+  }
+}
