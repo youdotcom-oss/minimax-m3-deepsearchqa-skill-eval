@@ -46,7 +46,19 @@ async function runAdapter(input: AdapterInput): Promise<object> {
   session.subscribe(subscribe);
   try {
     await session.prompt(prompt);
-    const message = collectFinalMessage(session) || "No response generated.";
+    const message = collectFinalMessage(session);
+    if (!message) {
+      return {
+        result: {
+          status: "failed",
+          message: "No final assistant response generated.",
+          error: "No final assistant response generated.",
+          failureKind: "harness_error",
+        },
+        trajectory: events,
+        metadata: { model, provider, thinkingLevel, usage: summarizeUsage(session.messages) },
+      };
+    }
     return {
       result: { status: "completed", message },
       trajectory: events,
