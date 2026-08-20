@@ -1,5 +1,6 @@
 import { readStdin, writeStdout, type JsonObject } from "./io.ts";
 import { collectFinalMessage, createPiSession, summarizeUsage } from "./pi-session.ts";
+import { estimateYouApiUsage } from "./you-cost.ts";
 
 interface AdapterInput {
   task: { prompts: string[] };
@@ -56,20 +57,20 @@ async function runAdapter(input: AdapterInput): Promise<object> {
           failureKind: "harness_error",
         },
         trajectory: events,
-        metadata: { model, provider, thinkingLevel, usage: summarizeUsage(session.messages) },
+        metadata: { model, provider, thinkingLevel, usage: summarizeUsage(session.messages), youApiUsage: estimateYouApiUsage(events) },
       };
     }
     return {
       result: { status: "completed", message },
       trajectory: events,
-      metadata: { model, provider, thinkingLevel, usage: summarizeUsage(session.messages) },
+      metadata: { model, provider, thinkingLevel, usage: summarizeUsage(session.messages), youApiUsage: estimateYouApiUsage(events) },
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
       result: { status: "failed", message: `Adapter error: ${message}`, error: message, failureKind: "harness_error" },
       trajectory: events,
-      metadata: { model, provider, thinkingLevel },
+      metadata: { model, provider, thinkingLevel, usage: summarizeUsage(session.messages), youApiUsage: estimateYouApiUsage(events) },
     };
   } finally {
     session.dispose();

@@ -11,6 +11,13 @@ export interface ScoredTrial {
   toolCallCount?: number;
   failedToolCallCount?: number;
   errorCount?: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  youApiCostUsd: number;
 }
 
 export interface MetricBlock {
@@ -38,6 +45,20 @@ export interface Summary {
     failedToolCallCount: number;
     errorCount: number;
   };
+  cost: {
+    modelCostUsd: number;
+    youApiCostUsd: number;
+    totalCostUsd: number;
+    averageTotalCostUsdPerTrial: number;
+    averageTotalCostUsdPerTask: number;
+    adjustedTotalCostUsd: number;
+    adjustedAverageTotalCostUsdPerTrial: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+  };
 }
 
 export function f1Score(correctCount: number, expectedCount: number, excessiveCount: number): number {
@@ -53,13 +74,14 @@ export function f1Score(correctCount: number, expectedCount: number, excessiveCo
 
 export function buildSummary(rows: unknown[], options: { k: number; model: string }): Summary {
   const scoredRows = rows.map(toScoredTrial);
+  const adjustedRows = scoredRows.filter((row) => row.gradable);
   return {
     generatedAt: new Date().toISOString(),
     label: readLabel(rows),
     model: options.model,
     k: options.k,
     raw: computeMetricBlock(scoredRows),
-    adjusted: computeMetricBlock(scoredRows.filter((row) => row.gradable)),
+    adjusted: computeMetricBlock(adjustedRows),
     ungradableTrialCount: scoredRows.filter((row) => !row.gradable).length,
     ungradableTaskCount: new Set(scoredRows.filter((row) => !row.gradable).map((row) => row.taskId)).size,
     process: {
@@ -68,6 +90,7 @@ export function buildSummary(rows: unknown[], options: { k: number; model: strin
       failedToolCallCount: sum(scoredRows.map((row) => row.failedToolCallCount ?? 0)),
       errorCount: sum(scoredRows.map((row) => row.errorCount ?? 0)),
     },
+    cost: computeCostBlock(scoredRows, adjustedRows),
   };
 }
 
@@ -108,11 +131,36 @@ function computeMetricBlock(rows: ScoredTrial[]): MetricBlock {
   };
 }
 
+function computeCostBlock(rows: ScoredTrial[], adjustedRows: ScoredTrial[]): Summary["cost"] {
+  const modelCostUsd = sum(rows.map((row) => row.costUsd));
+  const youApiCostUsd = sum(rows.map((row) => row.youApiCostUsd));
+  const totalCostUsd = modelCostUsd + youApiCostUsd;
+  const adjustedTotalCostUsd = sum(adjustedRows.map((row) => row.costUsd + row.youApiCostUsd));
+  const taskCount = new Set(rows.map((row) => row.taskId)).size;
+  return {
+    modelCostUsd,
+    youApiCostUsd,
+    totalCostUsd,
+    averageTotalCostUsdPerTrial: rows.length ? totalCostUsd / rows.length : 0,
+    averageTotalCostUsdPerTask: taskCount ? totalCostUsd / taskCount : 0,
+    adjustedTotalCostUsd,
+    adjustedAverageTotalCostUsdPerTrial: adjustedRows.length ? adjustedTotalCostUsd / adjustedRows.length : 0,
+    inputTokens: sum(rows.map((row) => row.inputTokens)),
+    outputTokens: sum(rows.map((row) => row.outputTokens)),
+    cacheReadTokens: sum(rows.map((row) => row.cacheReadTokens)),
+    cacheWriteTokens: sum(rows.map((row) => row.cacheWriteTokens)),
+    totalTokens: sum(rows.map((row) => row.totalTokens)),
+  };
+}
+
 function toScoredTrial(row: unknown): ScoredTrial {
   const object = asObject(row) ?? {};
   const trial = asObject(object.trial) ?? {};
   const task = asObject(trial.task) ?? {};
   const metadata = asObject(task.metadata) ?? {};
+  const trialMetadata = asObject(trial.metadata) ?? {};
+  const usage = asObject(trialMetadata.usage) ?? {};
+  const youApiUsage = asObject(trialMetadata.youApiUsage) ?? {};
   const process = asObject(object.process) ?? {};
   const answerResult = Array.isArray(object.graderResults)
     ? object.graderResults.map(asObject).find((result) => result?.id === "deepsearchqa-answer")
@@ -129,6 +177,13 @@ function toScoredTrial(row: unknown): ScoredTrial {
     toolCallCount: numberValue(process.toolCallCount),
     failedToolCallCount: numberValue(process.failedToolCallCount),
     errorCount: numberValue(process.errorCount),
+    inputTokens: numberValue(usage.inputTokens),
+    outputTokens: numberValue(usage.outputTokens),
+    cacheReadTokens: numberValue(usage.cacheReadTokens),
+    cacheWriteTokens: numberValue(usage.cacheWriteTokens),
+    totalTokens: numberValue(usage.totalTokens),
+    costUsd: numberValue(usage.costUsd),
+    youApiCostUsd: numberValue(youApiUsage.costUsd),
   };
 }
 

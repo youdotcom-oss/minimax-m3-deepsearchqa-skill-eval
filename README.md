@@ -84,3 +84,9 @@ bun run upload
 ## Metrics
 
 `summary.json` reports raw metrics over all rows and adjusted metrics excluding ungradable rows with missing gold answers. `exactPassAtK` is task-level: a task passes if any of its `K` trials scores at least `0.8`.
+
+`summary.json` also reports cost:
+
+- `modelCostUsd` from OpenRouter usage metadata.
+- `youApiCostUsd` estimated from You.com pricing, currently `$5/1k` Search calls and `$1/1k` Contents pages.
+- `totalCostUsd` as model plus You.com API cost.

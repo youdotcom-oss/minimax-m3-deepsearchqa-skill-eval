@@ -3,6 +3,7 @@ import { normalizeMessageRole } from "../src/adapter.ts";
 import { scoreJudgeResult } from "../src/grader.ts";
 import { collectFinalMessage } from "../src/pi-session.ts";
 import { buildSummary, f1Score } from "../src/summary.ts";
+import { estimateYouApiUsage } from "../src/you-cost.ts";
 
 describe("answer scoring", () => {
   test("computes F1 from correct, missing, and excessive answer parts", () => {
@@ -40,9 +41,9 @@ describe("answer scoring", () => {
 describe("summary metrics", () => {
   test("raw includes ungradable rows while adjusted excludes them", () => {
     const rows = [
-      row("deepsearchqa-1", 0, 1, true, true),
-      row("deepsearchqa-1", 1, 0.5, false, true),
-      row("deepsearchqa-110", 0, 0, false, false),
+      row("deepsearchqa-1", 0, 1, true, true, 0.25, 0.01),
+      row("deepsearchqa-1", 1, 0.5, false, true, 0.75, 0.02),
+      row("deepsearchqa-110", 0, 0, false, false, 0.5, 0.03),
     ];
     const summary = buildSummary(rows, { k: 2, model: "minimax/minimax-m3" });
     expect(summary.raw.trialCount).toBe(3);
@@ -54,6 +55,38 @@ describe("summary metrics", () => {
     expect(summary.adjusted.averageScore).toBeCloseTo(0.75, 8);
     expect(summary.adjusted.exactPassAtK).toBe(1);
     expect(summary.ungradableTrialCount).toBe(1);
+    expect(summary.cost.modelCostUsd).toBeCloseTo(1.5, 8);
+    expect(summary.cost.youApiCostUsd).toBeCloseTo(0.06, 8);
+    expect(summary.cost.totalCostUsd).toBeCloseTo(1.56, 8);
+    expect(summary.cost.averageTotalCostUsdPerTrial).toBeCloseTo(0.52, 8);
+    expect(summary.cost.adjustedTotalCostUsd).toBeCloseTo(1.03, 8);
+    expect(summary.cost.adjustedAverageTotalCostUsdPerTrial).toBeCloseTo(0.515, 8);
+  });
+});
+
+describe("You.com cost estimation", () => {
+  test("estimates dash-cased search and contents costs", () => {
+    const cost = estimateYouApiUsage([
+      { type: "tool_call", name: "you-search", status: "started", input: { query: "x" } },
+      {
+        type: "tool_call",
+        name: "you-search",
+        status: "completed",
+        output: { details: { results: { web: [{ contents: { markdown: "page" } }, { title: "plain" }] } } },
+      },
+      {
+        type: "tool_call",
+        name: "you-contents",
+        status: "started",
+        input: { urls: ["https://example.com/a", "https://example.com/b"] },
+      },
+    ]);
+
+    expect(cost.searchCalls).toBe(1);
+    expect(cost.searchExtractionPages).toBe(1);
+    expect(cost.contentsCalls).toBe(1);
+    expect(cost.contentsPages).toBe(2);
+    expect(cost.costUsd).toBeCloseTo(0.008, 8);
   });
 });
 
@@ -76,11 +109,14 @@ describe("adapter schema compatibility", () => {
   });
 });
 
-function row(taskId: string, trialIndex: number, score: number, pass: boolean, gradable: boolean): object {
+function row(taskId: string, trialIndex: number, score: number, pass: boolean, gradable: boolean, modelCostUsd = 0, youApiCostUsd = 0): object {
   return {
     taskId,
     trialIndex,
-    trial: { task: { metadata: { expected_answer: gradable ? "gold" : null, gradable } } },
+    trial: {
+      task: { metadata: { expected_answer: gradable ? "gold" : null, gradable } },
+      metadata: { usage: { costUsd: modelCostUsd }, youApiUsage: { costUsd: youApiCostUsd } },
+    },
     process: { toolCallCount: 2, failedToolCallCount: 0, errorCount: 0 },
     graderResults: [
       {
