@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeMessageRole } from "../src/adapter.ts";
 import { scoreJudgeResult } from "../src/grader.ts";
+import { collectFinalMessage } from "../src/pi-session.ts";
 import { buildSummary, f1Score } from "../src/summary.ts";
 
 describe("answer scoring", () => {
@@ -61,6 +62,17 @@ describe("adapter schema compatibility", () => {
     expect(normalizeMessageRole("toolResult")).toBe("tool");
     expect(normalizeMessageRole("assistant")).toBe("assistant");
     expect(normalizeMessageRole("unexpected")).toBeUndefined();
+  });
+
+  test("does not reuse stale assistant text when the final assistant turn is blank", () => {
+    const session = {
+      messages: [
+        { role: "assistant", content: "I am still researching this." },
+        { role: "toolResult", content: "tool output" },
+        { role: "assistant", content: "" },
+      ],
+    };
+    expect(collectFinalMessage(session as unknown as Parameters<typeof collectFinalMessage>[0])).toBe("");
   });
 });
 

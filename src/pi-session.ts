@@ -88,13 +88,9 @@ export async function createPiSession(options: CreatePiSessionOptions): Promise<
 }
 
 export function collectFinalMessage(session: PiSessionResult["session"]): string {
-  for (let i = session.messages.length - 1; i >= 0; i--) {
-    const msg = session.messages[i];
-    if (msg?.role !== "assistant") continue;
-    const text = messageContentText((msg as { content?: unknown }).content).trim();
-    if (text) return text;
-  }
-  return "";
+  const msg = session.messages.at(-1);
+  if (msg?.role !== "assistant") return "";
+  return messageContentText((msg as { content?: unknown }).content).trim();
 }
 
 export function summarizeUsage(messages: unknown[]): Record<string, number> {
