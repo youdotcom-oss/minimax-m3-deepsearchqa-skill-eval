@@ -25,6 +25,7 @@ export interface ScoredTrial {
   searchCostUsd: number;
   searchExtractionCostUsd: number;
   contentsCostUsd: number;
+  durationMs: number;
 }
 
 export interface MetricBlock {
@@ -73,6 +74,9 @@ export interface Summary {
     cacheWriteTokens: number;
     totalTokens: number;
   };
+  latency: {
+    averageEndToEndMs: number;
+  };
 }
 
 export function f1Score(correctCount: number, expectedCount: number, excessiveCount: number): number {
@@ -105,6 +109,7 @@ export function buildSummary(rows: unknown[], options: { k: number; model: strin
       errorCount: sum(scoredRows.map((row) => row.errorCount ?? 0)),
     },
     cost: computeCostBlock(scoredRows, adjustedRows),
+    latency: computeLatencyBlock(scoredRows),
   };
 }
 
@@ -174,12 +179,19 @@ function computeCostBlock(rows: ScoredTrial[], adjustedRows: ScoredTrial[]): Sum
   };
 }
 
+function computeLatencyBlock(rows: ScoredTrial[]): Summary["latency"] {
+  return {
+    averageEndToEndMs: rows.length ? sum(rows.map((row) => row.durationMs)) / rows.length : 0,
+  };
+}
+
 function toScoredTrial(row: unknown): ScoredTrial {
   const object = asObject(row) ?? {};
   const trial = asObject(object.trial) ?? {};
   const task = asObject(trial.task) ?? {};
   const metadata = asObject(task.metadata) ?? {};
   const trialMetadata = asObject(trial.metadata) ?? {};
+  const invocation = asObject(trial.invocation) ?? {};
   const usage = asObject(trialMetadata.usage) ?? {};
   const youApiUsage = asObject(trialMetadata.youApiUsage) ?? {};
   const process = asObject(object.process) ?? {};
@@ -212,6 +224,7 @@ function toScoredTrial(row: unknown): ScoredTrial {
     searchCostUsd: numberValue(youApiUsage.searchCostUsd),
     searchExtractionCostUsd: numberValue(youApiUsage.searchExtractionCostUsd),
     contentsCostUsd: numberValue(youApiUsage.contentsCostUsd),
+    durationMs: numberValue(invocation.durationMs),
   };
 }
 

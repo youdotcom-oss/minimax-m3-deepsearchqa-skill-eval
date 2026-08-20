@@ -41,9 +41,9 @@ describe("answer scoring", () => {
 describe("summary metrics", () => {
   test("raw includes ungradable rows while adjusted excludes them", () => {
     const rows = [
-      row("deepsearchqa-1", 0, 1, true, true, { modelCostUsd: 0.25, youApiCostUsd: 0.01, searchCalls: 2, searchCostUsd: 0.01 }),
-      row("deepsearchqa-1", 1, 0.5, false, true, { modelCostUsd: 0.75, youApiCostUsd: 0.02, searchExtractionPages: 20, searchExtractionCostUsd: 0.02 }),
-      row("deepsearchqa-110", 0, 0, false, false, { modelCostUsd: 0.5, youApiCostUsd: 0.03, contentsPages: 30, contentsCostUsd: 0.03 }),
+      row("deepsearchqa-1", 0, 1, true, true, { modelCostUsd: 0.25, youApiCostUsd: 0.01, searchCalls: 2, searchCostUsd: 0.01, durationMs: 1000 }),
+      row("deepsearchqa-1", 1, 0.5, false, true, { modelCostUsd: 0.75, youApiCostUsd: 0.02, searchExtractionPages: 20, searchExtractionCostUsd: 0.02, durationMs: 2000 }),
+      row("deepsearchqa-110", 0, 0, false, false, { modelCostUsd: 0.5, youApiCostUsd: 0.03, contentsPages: 30, contentsCostUsd: 0.03, durationMs: 3000 }),
     ];
     const summary = buildSummary(rows, { k: 2, model: "minimax/minimax-m3" });
     expect(summary.raw.trialCount).toBe(3);
@@ -67,6 +67,7 @@ describe("summary metrics", () => {
     expect(summary.cost.averageTotalCostUsdPerTrial).toBeCloseTo(0.52, 8);
     expect(summary.cost.adjustedTotalCostUsd).toBeCloseTo(1.03, 8);
     expect(summary.cost.adjustedAverageTotalCostUsdPerTrial).toBeCloseTo(0.515, 8);
+    expect(summary.latency.averageEndToEndMs).toBe(2000);
   });
 });
 
@@ -141,6 +142,7 @@ function row(
     searchCostUsd?: number;
     searchExtractionCostUsd?: number;
     contentsCostUsd?: number;
+    durationMs?: number;
   } = {},
 ): object {
   return {
@@ -161,6 +163,7 @@ function row(
           contentsCostUsd: cost.contentsCostUsd ?? 0,
         },
       },
+      invocation: { durationMs: cost.durationMs ?? 0 },
     },
     process: { toolCallCount: 2, failedToolCallCount: 0, errorCount: 0 },
     graderResults: [
