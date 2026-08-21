@@ -93,3 +93,19 @@ bun run upload
 - `totalCostUsd` as model plus You.com API cost.
 
 `latency.averageEndToEndMs` reports average harness-measured wall time from adapter invocation to final adapter output, using `trial.invocation.durationMs`.
+
+## MiniMax Code integration
+
+This repository also provides a project Skill for local MiniMax Code at `.minimax/skills/you-web/SKILL.md`. It reuses the focused You.com workflow for `you-search` and `you-contents`, including source reading, Highlights guidance, verification, and citations.
+
+See the [MiniMax Code integration guide](integrations/minimax-code/README.md) for host-local MCP setup and smoke prompts. The MCP server used by this project is:
+
+```text
+https://api.you.com/mcp?tools=you-search,you-contents
+```
+
+Keep authentication in local environment or local MCP configuration. Do not commit API keys, customer data, or private evaluation cases.
+
+## User-supplied datasets
+
+The [user dataset guide](datasets/user/README.md) documents the JSONL input shape and includes a generic example at `datasets/user/examples/example.jsonl`. Public dataset provenance belongs under `datasets/public/`; generated benchmark artifacts remain local under ignored `data/`.
