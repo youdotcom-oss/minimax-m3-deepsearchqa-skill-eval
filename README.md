@@ -18,20 +18,27 @@ Generated files live under local `data/` and are uploaded to the Hugging Face da
 
 ## Reproduce
 
-Run inside a Daytona sandbox or another clean Linux environment with Bun installed:
+Run with Bun and uv installed:
 
 ```sh
 bun install
 bun run eval:upload
 ```
 
+`uv` is only used by `bun run upload` to run the Python Hugging Face uploader and install its Python dependencies.
+
 Required environment variables:
 
 ```sh
 OPENROUTER_API_KEY=...
 YDC_API_KEY=...
-HF_TOKEN=...
-HF_DATASET_REPO=youdotcom/minimax-m3-deepsearchqa-skill-eval
+```
+
+Optional upload settings:
+
+```sh
+HF_DATASET_REPO=<your-hf-namespace>/<your-dataset-repo>
+HF_REVISION=main
 ```
 
 ## Commands
@@ -43,6 +50,7 @@ bun run grade       # trajectories.jsonl -> graded.jsonl + summary.json
 bun run eval        # scaffold + generate + grade
 bun run upload      # upload README.md and data/* to HF
 bun run eval:upload # eval + upload
+bun run query       # query large JSONL artifacts with clickhouse-local
 bun run check       # typecheck + tests
 ```
 
@@ -68,7 +76,33 @@ caffeinate -dimsu bun run eval
 Then upload the generated artifacts:
 
 ```sh
+huggingface-cli login
 bun run upload
+```
+
+The uploader runs through `uv` and uses the official Python `huggingface_hub` client with `hf_xet`, which streams large files and can resume interrupted uploads. It uses your `huggingface-cli login` token, or `HF_TOKEN` if that environment variable is set. For maximum throughput on large artifacts, optionally set:
+
+```sh
+HF_XET_HIGH_PERFORMANCE=1
+```
+
+## Query artifacts
+
+For ad-hoc questions over large `data/*.jsonl` artifacts, use the ClickHouse helper instead of loading JSONL into memory:
+
+```sh
+bun run query -- --list
+bun run query -- summary --dry-run
+bun run query -- summary
+bun run query -- failures
+bun run query -- cost-outliers
+bun run query -- latency-outliers
+```
+
+This requires `clickhouse-local` on `PATH`. If your ClickHouse binary is invoked another way, set `CLICKHOUSE_LOCAL`, for example:
+
+```sh
+CLICKHOUSE_LOCAL="./clickhouse local" bun run query -- summary
 ```
 
 ## Defaults

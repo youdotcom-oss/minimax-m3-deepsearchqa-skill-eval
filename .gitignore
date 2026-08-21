@@ -1,5 +1,9 @@
 node_modules/
 .tmp/
+.ruff_cache/
+.venv/
+__pycache__/
+/clickhouse
 data/prompts.jsonl
 data/trajectories.jsonl
 data/graded.jsonl
