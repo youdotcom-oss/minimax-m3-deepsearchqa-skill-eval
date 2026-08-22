@@ -22,6 +22,7 @@ describe('HF artifact download CLI', () => {
     expect(plan.files.map((file: { remote: string }) => file.remote)).toEqual([
       'summary.json',
       'prompts.jsonl',
+      'results.jsonl',
       'graded.jsonl',
     ])
   })

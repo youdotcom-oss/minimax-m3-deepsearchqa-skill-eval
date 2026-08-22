@@ -7,6 +7,7 @@
     "generate": "bun run scripts/generate.ts",
     "grade": "bun run scripts/grade.ts",
     "eval": "bun run scaffold && bun run generate && bun run grade",
+    "export-results": "bun run scripts/export-results.ts",
     "download": "uv run scripts/download.py",
     "upload": "uv run scripts/upload.py",
     "query": "bun run scripts/query.ts",

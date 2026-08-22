@@ -5,6 +5,7 @@ node_modules/
 __pycache__/
 /clickhouse
 data/prompts.jsonl
+data/results.jsonl
 data/trajectories.jsonl
 data/graded.jsonl
 data/summary.json

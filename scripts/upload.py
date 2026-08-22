@@ -28,21 +28,32 @@ tags:
   - text
 task_categories:
   - question-answering
-viewer: false
+configs:
+  - config_name: results
+    default: true
+    data_files:
+      - split: test
+        path: results.jsonl
+  - config_name: prompts
+    data_files:
+      - split: test
+        path: prompts.jsonl
 ---
 
 """
 FILES = [
     ("README.md", "README.md"),
     ("data/prompts.jsonl", "prompts.jsonl"),
-    ("data/trajectories.jsonl", "trajectories.jsonl"),
+    ("data/results.jsonl", "results.jsonl"),
     ("data/graded.jsonl", "graded.jsonl"),
+    ("data/trajectories.jsonl", "trajectories.jsonl"),
     ("data/summary.json", "summary.json"),
 ]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
+        allow_abbrev=False,
         description="Upload eval artifacts to a Hugging Face dataset repository."
     )
     parser.add_argument(
@@ -62,6 +73,9 @@ def main() -> int:
     revision = os.environ.get("HF_REVISION", "main")
     selected_files = FILES[:1] if args.card_only else FILES
     files = [(root / local, remote) for local, remote in selected_files]
+
+    if not args.card_only:
+        verify_results_preflight(root)
 
     missing = [str(local.relative_to(root)) for local, _ in files if not local.exists()]
     if missing:
@@ -97,7 +111,7 @@ def main() -> int:
             "Missing Python package 'huggingface_hub'. Run this script with: uv run scripts/upload.py"
         ) from exc
 
-    api = HfApi(token=os.environ.get("HF_TOKEN") or None)
+    api = HfApi(token=upload_token())
     last_commit_url = None
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
@@ -124,6 +138,19 @@ def upload_size(local: Path, remote: str) -> int:
     if remote == "README.md":
         return len(build_dataset_card(local).encode())
     return local.stat().st_size
+
+
+def upload_token() -> str | bool:
+    return os.environ.get("HF_TOKEN") or True
+
+
+def verify_results_preflight(root: Path) -> None:
+    graded_path = root / "data/graded.jsonl"
+    results_path = root / "data/results.jsonl"
+    if not results_path.exists():
+        raise SystemExit("data/results.jsonl is missing. Run `bun run export-results` before `bun run upload`.")
+    if graded_path.exists() and results_path.stat().st_mtime < graded_path.stat().st_mtime:
+        raise SystemExit("data/results.jsonl is older than data/graded.jsonl. Run `bun run export-results` before `bun run upload`.")
 
 
 def prepare_upload_path(local: Path, remote: str, tmpdir: Path) -> Path:

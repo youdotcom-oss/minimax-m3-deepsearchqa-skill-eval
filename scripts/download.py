@@ -29,6 +29,7 @@ class Artifact:
 DEFAULT_ARTIFACTS = [
     Artifact("summary.json", "summary.json", 2_000),
     Artifact("prompts.jsonl", "prompts.jsonl", 600_000),
+    Artifact("results.jsonl", "results.jsonl", 1_000_000),
     Artifact("graded.jsonl", "graded.jsonl", 1_600_000_000),
 ]
 ALL_ARTIFACTS = [

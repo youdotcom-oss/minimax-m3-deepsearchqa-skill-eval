@@ -10,13 +10,14 @@ Evaluates `minimax/minimax-m3` on `google/deepsearchqa` using a Pi agent with th
 ## What this publishes
 
 - `prompts.jsonl` — DeepSearchQA prompts in `agent-eval-harness` task format.
+- `results.jsonl` — flat, viewer-safe per-trial result rows derived from `graded.jsonl`.
 - `trajectories.jsonl` — raw `agent-eval-harness` run output.
 - `graded.jsonl` — raw `agent-eval-harness` grade output.
 - `summary.json` — aggregate raw and adjusted metrics.
 
 Generated files live under local `data/` and are uploaded to the Hugging Face dataset root. They are not committed to GitHub.
 
-The Hugging Face Dataset Viewer is disabled for this repository because `graded.jsonl` and `trajectories.jsonl` are raw harness artifacts with heterogeneous nested records. Use `bun run download` and `bun run query` for local inspection.
+The uploaded Hugging Face dataset card configures the Dataset Viewer to load stable, flat `results.jsonl` rows and `prompts.jsonl` prompts. The raw `graded.jsonl` and `trajectories.jsonl` harness artifacts remain downloadable, but are intentionally excluded from the viewer because they contain heterogeneous nested records.
 
 ## Reproduce
 
@@ -25,10 +26,11 @@ Run with Bun and uv installed:
 ```sh
 bun install
 bun run eval
+bun run export-results
 bun run upload
 ```
 
-`uv` is only used by `bun run upload` to run the Python Hugging Face uploader and install its Python dependencies.
+`uv` is used by `bun run upload` and `bun run download` to run the Python Hugging Face scripts and install their Python dependencies.
 
 Required environment variables:
 
@@ -51,6 +53,7 @@ bun run scaffold    # DeepSearchQA -> data/prompts.jsonl
 bun run generate    # prompts.jsonl -> trajectories.jsonl
 bun run grade       # trajectories.jsonl -> graded.jsonl + summary.json
 bun run eval        # scaffold + generate + grade
+bun run export-results # graded.jsonl -> results.jsonl
 bun run download    # download published artifacts from HF into data/
 bun run upload      # upload README.md and data/* to HF
 bun run query       # query large JSONL artifacts with clickhouse-local
@@ -80,10 +83,11 @@ Then upload the generated artifacts:
 
 ```sh
 huggingface-cli login
+bun run export-results
 bun run upload
 ```
 
-The uploader runs through `uv` and uses the official Python `huggingface_hub` client with `hf_xet`, which streams large files and can resume interrupted uploads. It uses your `huggingface-cli login` token, or `HF_TOKEN` if that environment variable is set. For maximum throughput on large artifacts, optionally set:
+The uploader runs through `uv` and uses the official Python `huggingface_hub` client with `hf_xet`, which streams large files and can resume interrupted uploads. Full artifact uploads require a current `data/results.jsonl`; run `bun run export-results` after grading and before upload. The uploader uses your `huggingface-cli login` token, or `HF_TOKEN` if that environment variable is set. For maximum throughput on large artifacts, optionally set:
 
 ```sh
 HF_XET_HIGH_PERFORMANCE=1
@@ -95,7 +99,7 @@ To update only the Hugging Face dataset card, without scanning the large artifac
 bun run upload -- --card-only
 ```
 
-The uploader prepends Hugging Face dataset-card metadata to the uploaded `README.md`; the GitHub README intentionally omits that YAML front matter.
+The uploader prepends Hugging Face dataset-card metadata to the uploaded `README.md`; the GitHub README intentionally omits that YAML front matter. The uploaded dataset card configures the Hugging Face Dataset Viewer to use `results.jsonl` and `prompts.jsonl`, while leaving the raw `graded.jsonl` and `trajectories.jsonl` artifacts downloadable.
 
 ## Download published artifacts
 
@@ -106,7 +110,7 @@ bun run download -- --dry-run
 bun run download -- --yes
 ```
 
-By default this downloads `summary.json`, `prompts.jsonl`, and `graded.jsonl`. Use `--all` to include the much larger `trajectories.jsonl`:
+By default this downloads `summary.json`, `prompts.jsonl`, `results.jsonl`, and `graded.jsonl`. Use `--all` to include the much larger `trajectories.jsonl`:
 
 ```sh
 bun run download -- --all --yes
@@ -159,7 +163,7 @@ CLICKHOUSE_LOCAL="./clickhouse local" bun run query -- summary
 
 Full run completed on 2026-08-21 with `minimax/minimax-m3` at `THINKING_LEVEL=medium`, the You.com MCP `you-search` and `you-contents` tools, and a MiniMax-oriented research skill optimized via an auto-research loop over the model, tool surface, and harness combination.
 
-These are eval results and artifact facts, not a paper claim. The uploaded `prompts.jsonl`, `trajectories.jsonl`, `graded.jsonl`, and `summary.json` are the source of record.
+These are eval results and artifact facts, not a paper claim. The uploaded `prompts.jsonl`, `results.jsonl`, `trajectories.jsonl`, `graded.jsonl`, and `summary.json` are the source of record.
 
 ### Summary metrics
 
@@ -181,10 +185,19 @@ These are eval results and artifact facts, not a paper claim. The uploaded `prom
 | Model cost | $328.14 |
 | You.com API cost | $150.27 |
 | Average cost per trial | $0.177 |
+| P50 cost per trial | $0.095 |
+| P90 cost per trial | $0.431 |
+| P95 cost per trial | $0.606 |
 | Average cost per task | $0.532 |
 | Average end-to-end latency per trial | 82.5s |
+| P50 end-to-end latency per trial | 54.3s |
+| P90 end-to-end latency per trial | 177.7s |
+| P95 end-to-end latency per trial | 238.8s |
 | Total tool calls | 77,286 |
 | Average tool calls per trial | 28.62 |
+| P50 tool calls per trial | 20 |
+| P90 tool calls per trial | 60 |
+| P95 tool calls per trial | 78 |
 | Search calls | 24,999 |
 | Contents calls | 13,641 |
 
