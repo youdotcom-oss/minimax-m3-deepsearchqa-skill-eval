@@ -1,19 +1,3 @@
----
-pretty_name: MiniMax M3 DeepSearchQA Skill Eval
-language:
-  - en
-tags:
-  - deepsearchqa
-  - agent-eval
-  - web-agent
-  - minimax
-  - you-com
-  - text
-task_categories:
-  - question-answering
-viewer: false
----
-
 # MiniMax M3 DeepSearchQA Skill Eval
 
 Evaluates `minimax/minimax-m3` on `google/deepsearchqa` using a Pi agent with the You.com MCP tools `you-search` and `you-contents`.
@@ -104,6 +88,14 @@ The uploader runs through `uv` and uses the official Python `huggingface_hub` cl
 ```sh
 HF_XET_HIGH_PERFORMANCE=1
 ```
+
+To update only the Hugging Face dataset card, without scanning the large artifacts:
+
+```sh
+bun run upload -- --card-only
+```
+
+The uploader prepends Hugging Face dataset-card metadata to the uploaded `README.md`; the GitHub README intentionally omits that YAML front matter.
 
 ## Download published artifacts
 
