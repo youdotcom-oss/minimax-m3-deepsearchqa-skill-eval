@@ -17,6 +17,7 @@ from pathlib import Path
 DEFAULT_REPO = "youdotcom/minimax-m3-deepsearchqa-skill-eval"
 HF_CARD_METADATA = """---
 pretty_name: MiniMax M3 DeepSearchQA Skill Eval
+license: mit
 language:
   - en
 tags:

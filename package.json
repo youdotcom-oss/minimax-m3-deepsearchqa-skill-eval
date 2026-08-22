@@ -2,6 +2,7 @@
   "name": "minimax-m3-deepsearchqa-skill-eval",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "scaffold": "bun run scripts/scaffold.ts",
     "generate": "bun run scripts/generate.ts",
