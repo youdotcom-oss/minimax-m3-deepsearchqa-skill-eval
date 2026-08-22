@@ -179,25 +179,28 @@ These are eval results and artifact facts, not a paper claim. The uploaded `prom
 
 ### Cost, latency, and tool use
 
+Cost totals:
+
 | Metric | Value |
 | --- | ---: |
 | Total cost | $478.41 |
 | Model cost | $328.14 |
 | You.com API cost | $150.27 |
-| Average cost per trial | $0.177 |
-| P50 cost per trial | $0.095 |
-| P90 cost per trial | $0.431 |
-| P95 cost per trial | $0.606 |
 | Average cost per task | $0.532 |
-| Average end-to-end latency per trial | 82.5s |
-| P50 end-to-end latency per trial | 54.3s |
-| P90 end-to-end latency per trial | 177.7s |
-| P95 end-to-end latency per trial | 238.8s |
+
+Per-trial distributions:
+
+| Metric | Average | P50 | P90 | P95 |
+| --- | ---: | ---: | ---: | ---: |
+| Cost | $0.177 | $0.095 | $0.431 | $0.606 |
+| End-to-end latency | 82.5s | 54.3s | 177.7s | 238.8s |
+| Tool calls | 28.62 | 20 | 60 | 78 |
+
+Tool call totals:
+
+| Metric | Value |
+| --- | ---: |
 | Total tool calls | 77,286 |
-| Average tool calls per trial | 28.62 |
-| P50 tool calls per trial | 20 |
-| P90 tool calls per trial | 60 |
-| P95 tool calls per trial | 78 |
 | Search calls | 24,999 |
 | Contents calls | 13,641 |
 
