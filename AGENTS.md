@@ -20,6 +20,8 @@ bun run query -- failures
 
 The helper uses `clickhouse-local` and curated read-only SQL presets over the JSONL files. Use `--dry-run` before expensive queries to inspect the SQL and command.
 
+Reference: https://clickhouse.com/docs/concepts/features/tools-and-utilities/clickhouse-local.md
+
 Safety guidance:
 
 - Keep queries read-only.
