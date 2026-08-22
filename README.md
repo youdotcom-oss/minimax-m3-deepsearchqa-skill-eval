@@ -127,3 +127,52 @@ CLICKHOUSE_LOCAL="./clickhouse local" bun run query -- summary
 - `totalCostUsd` as model plus You.com API cost.
 
 `latency.averageEndToEndMs` reports average harness-measured wall time from adapter invocation to final adapter output, using `trial.invocation.durationMs`.
+
+## Result
+
+Full run completed on 2026-08-21 with `minimax/minimax-m3` at `THINKING_LEVEL=medium`, the You.com MCP `you-search` and `you-contents` tools, and a MiniMax-oriented research skill optimized via an auto-research loop over the model, tool surface, and harness combination.
+
+These are eval results and artifact facts, not a paper claim. The uploaded `prompts.jsonl`, `trajectories.jsonl`, `graded.jsonl`, and `summary.json` are the source of record.
+
+### Summary metrics
+
+| Metric | Raw | Adjusted |
+| --- | ---: | ---: |
+| Trials | 2,700 | 2,688 |
+| Tasks | 900 | 896 |
+| Average F1 score | 72.84% | 73.17% |
+| Pass rate (`score >= 0.8`) | 66.37% | 66.67% |
+| Exact pass@3 (`score >= 0.8`) | 83.56% | 83.93% |
+| Ungradable trials | 12 | - |
+| Ungradable tasks | 4 | - |
+
+### Cost, latency, and tool use
+
+| Metric | Value |
+| --- | ---: |
+| Total cost | $478.41 |
+| Model cost | $328.14 |
+| You.com API cost | $150.27 |
+| Average cost per trial | $0.177 |
+| Average cost per task | $0.532 |
+| Average end-to-end latency per trial | 82.5s |
+| Total tool calls | 77,286 |
+| Average tool calls per trial | 28.62 |
+| Search calls | 24,999 |
+| Contents calls | 13,641 |
+
+### Paper-aligned view
+
+The DeepSearchQA paper reports single-response F1 plus categorical rates such as Fully Correct and Fully Incorrect. The project summary's `passRate` and `exactPassAtK` are useful operational metrics, but they are not the same as the paper's Fully Correct rate because this repo's pass threshold is `score >= 0.8`.
+
+Using the graded rows to compute paper-style adjusted trial metrics:
+
+| Metric | Value |
+| --- | ---: |
+| F1 | 73.17% |
+| Fully correct (`score = 1.0`) | 56.58% |
+| Fully incorrect (`score = 0.0`) | 19.01% |
+| Correct with extraneous answers | 11.31% |
+| Partially correct | 13.10% |
+
+For context, the DeepSearchQA paper's Table 4 reports GPT-5 High Reasoning at 73.24 F1, Gemini 3 Pro Preview at 76.86 F1, GPT-5 Pro High Reasoning at 78.98 F1, and Gemini Deep Research Agent at 81.90 F1. This run is therefore best described as competitive with the paper's GPT-5 High Reasoning F1 result, while still behind the top Deep Research agents and with a higher fully-incorrect rate than the leaders.
