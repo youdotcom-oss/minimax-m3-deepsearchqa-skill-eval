@@ -1,3 +1,19 @@
+---
+pretty_name: MiniMax M3 DeepSearchQA Skill Eval
+language:
+  - en
+tags:
+  - deepsearchqa
+  - agent-eval
+  - web-agent
+  - minimax
+  - you-com
+  - text
+task_categories:
+  - question-answering
+viewer: false
+---
+
 # MiniMax M3 DeepSearchQA Skill Eval
 
 Evaluates `minimax/minimax-m3` on `google/deepsearchqa` using a Pi agent with the You.com MCP tools `you-search` and `you-contents`.
@@ -15,6 +31,8 @@ Evaluates `minimax/minimax-m3` on `google/deepsearchqa` using a Pi agent with th
 - `summary.json` — aggregate raw and adjusted metrics.
 
 Generated files live under local `data/` and are uploaded to the Hugging Face dataset root. They are not committed to GitHub.
+
+The Hugging Face Dataset Viewer is disabled for this repository because `graded.jsonl` and `trajectories.jsonl` are raw harness artifacts with heterogeneous nested records. Use `bun run download` and `bun run query` for local inspection.
 
 ## Reproduce
 
