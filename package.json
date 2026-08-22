@@ -7,9 +7,9 @@
     "generate": "bun run scripts/generate.ts",
     "grade": "bun run scripts/grade.ts",
     "eval": "bun run scaffold && bun run generate && bun run grade",
+    "download": "uv run scripts/download.py",
     "upload": "uv run scripts/upload.py",
     "query": "bun run scripts/query.ts",
-    "eval:upload": "bun run eval && bun run upload",
     "check": "bun run typecheck && bun test && bun run biome",
     "biome": "biome check .",
     "typecheck": "bun --bun tsc --noEmit"

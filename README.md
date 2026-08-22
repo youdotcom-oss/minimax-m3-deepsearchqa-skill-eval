@@ -22,7 +22,8 @@ Run with Bun and uv installed:
 
 ```sh
 bun install
-bun run eval:upload
+bun run eval
+bun run upload
 ```
 
 `uv` is only used by `bun run upload` to run the Python Hugging Face uploader and install its Python dependencies.
@@ -48,8 +49,8 @@ bun run scaffold    # DeepSearchQA -> data/prompts.jsonl
 bun run generate    # prompts.jsonl -> trajectories.jsonl
 bun run grade       # trajectories.jsonl -> graded.jsonl + summary.json
 bun run eval        # scaffold + generate + grade
+bun run download    # download published artifacts from HF into data/
 bun run upload      # upload README.md and data/* to HF
-bun run eval:upload # eval + upload
 bun run query       # query large JSONL artifacts with clickhouse-local
 bun run check       # typecheck + tests
 ```
@@ -86,11 +87,27 @@ The uploader runs through `uv` and uses the official Python `huggingface_hub` cl
 HF_XET_HIGH_PERFORMANCE=1
 ```
 
+## Download published artifacts
+
+To inspect the public results without rerunning the full eval, download the published artifacts into `data/`:
+
+```sh
+bun run download -- --dry-run
+bun run download -- --yes
+```
+
+By default this downloads `summary.json`, `prompts.jsonl`, and `graded.jsonl`. Use `--all` to include the much larger `trajectories.jsonl`:
+
+```sh
+bun run download -- --all --yes
+```
+
 ## Query artifacts
 
 For ad-hoc questions over large `data/*.jsonl` artifacts, use the ClickHouse helper instead of loading JSONL into memory:
 
 ```sh
+bun run download -- --yes
 bun run query -- --list
 bun run query -- summary --dry-run
 bun run query -- summary
