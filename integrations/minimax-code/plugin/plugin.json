@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "you-web",
+  "version": "0.1.0",
+  "description": "You.com web search and page contents Skill for MiniMax Code.",
+  "license": "MIT",
+  "keywords": ["minimax-code", "you.com", "web-search", "mcp"]
+}

@@ -9,6 +9,63 @@ Evaluates `minimax/minimax-m3` on `google/deepsearchqa` using a Pi agent, You.co
 - GitHub: https://github.com/youdotcom-oss/minimax-m3-deepsearchqa-skill-eval
 - Hugging Face dataset: https://huggingface.co/datasets/youdotcom/minimax-m3-deepsearchqa-skill-eval
 
+## Project overview
+
+This repository is an end-to-end evaluation project for `minimax/minimax-m3` on Google's
+`deepsearchqa` dataset. It combines a research Skill, You.com MCP search/content tools, a Pi-based
+agent adapter, a generation pipeline, and grading/upload scripts.
+
+The main flow is:
+
+```text
+DeepSearchQA dataset
+        │
+        ▼
+scaffold ──► prompts.jsonl ──► generate ──► trajectories.jsonl
+                                                │
+                                                ▼
+                                      grade ──► graded.jsonl + summary.json
+                                                │
+                                                ▼
+                                      export/upload ──► public artifacts
+```
+
+## Repository structure
+
+```text
+.
+├── src/                              Core adapter, grader, MCP/session integration
+├── scripts/                          Scaffold, generate, grade, export, download, query, upload
+├── datasets/
+│   ├── public/                       Public dataset provenance and documentation
+│   └── user/                         User-supplied input format and safe example
+├── integrations/minimax-code/
+│   ├── README.md                     MiniMax Code setup and smoke-test guide
+│   ├── plugin/                       Portable you-web Plugin package
+│   └── smoke-prompts/                Search, contents, and installed-Plugin test prompts
+├── .minimax/skills/you-web/          Project-level MiniMax Code Skill
+├── data/                             Local generated artifacts; not committed
+├── package.json                      Bun scripts and dependencies
+└── README.md                         Project overview, results, reproduction, and publishing
+```
+
+The project-level Skill and portable Plugin contain the same `you-web` workflow. The former is
+loaded when MiniMax Code opens this repository; the latter can be installed and used from any
+working directory.
+
+## Quick start
+
+Install dependencies, configure the required credentials locally, and run a one-question smoke:
+
+```sh
+bun install
+OPENROUTER_API_KEY=... YDC_API_KEY=... FORCE=1 LIMIT=1 K=1 CONCURRENCY=1 bun run eval
+cat data/summary.json
+```
+
+Use `bun run check` for local code checks. See [Reproduce](#reproduce) for the full evaluation and
+[MiniMax Code integration](#minimax-code-integration) for the Skill/Plugin workflow.
+
 ## Results
 
 Full run completed on 2026-08-21 with `minimax/minimax-m3` at `THINKING_LEVEL=medium`, the You.com MCP `you-search` and `you-contents` tools, and a MiniMax-oriented research skill optimized via an auto-research loop over the model, tool surface, and harness combination.
@@ -236,3 +293,17 @@ The uploader prepends Hugging Face dataset-card metadata to the uploaded `README
 ## License
 
 MIT. The generated Hugging Face dataset card declares `license: mit`.
+
+## MiniMax Code integration
+
+This repository also provides a project Skill for local MiniMax Code at `.minimax/skills/you-web/SKILL.md`. It reuses the focused You.com workflow for `you-search` and `you-contents`.
+
+See the [MiniMax Code integration guide](integrations/minimax-code/README.md) for project-level MCP setup, and the [portable Plugin guide](integrations/minimax-code/plugin/README.md) for installation from an arbitrary directory. The reproducible installed-Plugin test is in [plugin-acceptance.md](integrations/minimax-code/smoke-prompts/plugin-acceptance.md).
+
+The MCP server used by this project is:
+
+```text
+https://api.you.com/mcp?tools=you-search,you-contents
+```
+
+Keep authentication in local environment or local MCP configuration. Do not commit API keys, customer data, or private evaluation cases.
