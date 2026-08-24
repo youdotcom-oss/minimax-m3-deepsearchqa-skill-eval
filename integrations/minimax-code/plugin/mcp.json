@@ -3,7 +3,10 @@
   "mcpServers": {
     "you-web": {
       "type": "streamable-http",
-      "url": "https://api.you.com/mcp?tools=you-search,you-contents"
+      "url": "https://api.you.com/mcp?tools=you-search,you-contents",
+      "headers": {
+        "Authorization": "Bearer <YDC_API_KEY>"
+      }
     }
   }
 }

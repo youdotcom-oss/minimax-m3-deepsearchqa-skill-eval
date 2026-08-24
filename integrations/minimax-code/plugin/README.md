@@ -23,9 +23,8 @@ directory into the local Plugin marketplace is the supported local-development w
 
 ## Configure authentication locally
 
-Do not put an API key in this directory, in `plugin.json`, or in a committed MCP file. Configure
-the key in the host-local MiniMax MCP configuration. For the You.com MCP endpoint, use the Bearer
-header:
+The repository's `mcp.json` contains the placeholder `<YDC_API_KEY>`. After copying the Plugin,
+replace that placeholder only in the local file `~/.minimax/plugins/you-web/mcp.json`:
 
 ```json
 {
@@ -41,8 +40,8 @@ header:
 }
 ```
 
-Replace `<YDC_API_KEY>` only in the local file. Never commit the real value or copy `.env` into
-the Plugin directory. Restart `mcode` after changing authentication.
+Never commit the real value or copy `.env` into the repository. Restart `mcode` after changing
+authentication.
 
 ## Use the Plugin
 
@@ -57,9 +56,10 @@ mcode
 Then ask:
 
 ```text
-Use the installed you-web Plugin. Call you-search to find the official Bun release notes, then
-call you-contents on one official result. Report the actual tool names, URLs, and whether each
-call succeeded. Do not use built-in web tools.
+请进行插件验收，只使用已安装的 you-web Plugin，不要使用 web_search 或 web_fetch。第一步调用
+you-search，查询“Bun official release notes”，返回一个官方 Bun 页面 URL。第二步必须调用
+you-contents，读取你刚才返回的其中一个官方 URL。最后报告：实际调用的 namespaced 工具名称、
+每次调用的 URL、成功/失败状态，以及 you-contents 返回的页面标题。
 ```
 
 Use the interactive TUI for end-to-end MCP validation. In MiniMax Code 0.2.1, `mcode exec` is a
@@ -67,6 +67,9 @@ headless mode and does not expose the same external MCP tool surface.
 
 ## Local acceptance test
 
-Use the reproducible prompt in [`../smoke-prompts/plugin-acceptance.md`](../smoke-prompts/plugin-acceptance.md).
-It checks both tools from an empty temporary working directory. Expected results are a successful
-`you-search` call and a successful `you-contents` call returning page content.
+For end-to-end validation, use the reproducible prompt in
+[`../smoke-prompts/plugin-acceptance.md`](../smoke-prompts/plugin-acceptance.md).
+It checks both tools from an empty temporary working directory. The acceptance report must
+distinguish Plugin/tool loading from upstream authentication. The latest local run used the
+`you-web` namespace for both calls after replacing the placeholder: `you-search` returned official
+Bun URLs and `you-contents` successfully returned page content with the title `Bun`.

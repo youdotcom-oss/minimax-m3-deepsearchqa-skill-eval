@@ -12,7 +12,9 @@ Configure the host-local You.com MCP server with the two tools used by this proj
 https://api.you.com/mcp?tools=you-search,you-contents
 ```
 
-Use the authentication method supported by your MiniMax Code installation. For bearer authentication, provide `YDC_API_KEY` through local environment or local MCP configuration. Never commit the key or a machine-specific MCP file to this repository.
+Use the portable Plugin setup in [`plugin/README.md`](plugin/README.md). After installation,
+replace the `YDC_API_KEY` placeholder in the local Plugin MCP configuration. Never commit the key
+or a machine-specific MCP file.
 
 ## Smoke test
 
@@ -21,7 +23,10 @@ Use the authentication method supported by your MiniMax Code installation. For b
 3. Confirm both `you-search` and `you-contents` are visible.
 4. Run the prompts in `smoke-prompts/search.md` and `smoke-prompts/contents.md`.
 
-For a full installed-Plugin acceptance test from an arbitrary directory, use [`smoke-prompts/plugin-acceptance.md`](smoke-prompts/plugin-acceptance.md).
+For a full installed-Plugin acceptance test from an arbitrary directory, run `mcode` interactively
+and paste the exact query in [`smoke-prompts/plugin-acceptance.md`](smoke-prompts/plugin-acceptance.md).
+The latest local run confirmed the complete installed-Plugin flow: `you-search` and `you-contents`
+both succeeded through the `you-web` namespace, and `you-contents` returned the title `Bun`.
 
 Expected behavior: the agent searches for sources, reads at least one source page, and returns a concise answer with citations and a source list.
 

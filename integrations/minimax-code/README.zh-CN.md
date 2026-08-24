@@ -12,7 +12,8 @@
 https://api.you.com/mcp?tools=you-search,you-contents
 ```
 
-请根据本地 MiniMax Code 版本支持的方式配置认证。使用 Bearer 认证时，通过本地环境或本地 MCP 配置提供 `YDC_API_KEY`。不要把 Key 或机器相关的 MCP 配置提交到仓库。
+请按照 [`plugin/README.md`](plugin/README.md) 安装 Plugin，然后把本地 Plugin MCP 配置中的
+`YDC_API_KEY` 占位符替换成自己的 Key。不要把 Key 或机器相关的 MCP 配置提交到仓库。
 
 ## Smoke Test
 
@@ -21,7 +22,10 @@ https://api.you.com/mcp?tools=you-search,you-contents
 3. 确认可以看到 `you-search` 和 `you-contents`。
 4. 依次运行 `smoke-prompts/search.md` 和 `smoke-prompts/contents.md` 中的提示词。
 
-要从任意目录完整验收已安装的 Plugin，请使用 [`smoke-prompts/plugin-acceptance.md`](smoke-prompts/plugin-acceptance.md)。
+要从任意目录验收已安装的 Plugin，请运行交互式 `mcode`，并粘贴
+[`smoke-prompts/plugin-acceptance.md`](smoke-prompts/plugin-acceptance.md) 中的完整查询文本。
+最近一次本机测试已确认完整的已安装 Plugin 流程：`you-search` 和 `you-contents` 均通过
+`you-web` 命名空间成功调用，`you-contents` 返回页面标题 `Bun`。
 
 预期结果：模型先搜索来源，再至少读取一个页面，最后输出带引用和来源列表的简洁答案。
 
