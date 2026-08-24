@@ -151,7 +151,7 @@ FORMAT PrettyCompact`.trim()
   }
 }
 
-function jsonlFile(path: string): string {
+export function jsonlFile(path: string): string {
   return `file(${sqlString(path)}, 'JSONAsString', 'json String')`
 }
 
