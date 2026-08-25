@@ -9,3 +9,4 @@ data/results.jsonl
 data/trajectories.jsonl
 data/graded.jsonl
 data/summary.json
+.DS_Store
