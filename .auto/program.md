@@ -24,7 +24,7 @@ Work with the user to:
    - `src/extension.ts` — the fixed You.com MCP proxy. Read-only.
    - `src/adapter.ts`, `src/pi-session.ts` — the harness. Read to understand session/extension/tool loading.
    - `src/grader.ts`, `src/results.ts` — grading + export (the ground-truth metric).
-   - `analysis/findings.md` — prior analysis motivating the seed levers.
+   - `analysis/README.md` — prior analysis motivating the seed levers.
    - (`src/rewriter.ts` — **mutable surface 2**, created at the Phase 1→2 transition; not needed for Phase 1.)
 4. **Build the sample runner** if absent: a fixed eval script (e.g. `scripts/run-sample.ts`) that loads the 40-task sample, runs the adapter with concurrency, grades, and prints the metrics summary. Ground-truth eval — once built, do not modify it during the loop.
 5. **Verify the sample**: the fixed 40-task stratified sample from `prompts.jsonl` exists or is generated (see "Fixed sample").
@@ -182,7 +182,7 @@ LOOP FOREVER:
 
 **Crashes**: fix trivial bugs and re-run; if the idea is fundamentally broken, log `crash` and move on.
 
-**NEVER STOP**: once the loop has begun, do not pause to ask the human. The human may be asleep. You are autonomous. If you run out of ideas, think harder — re-read `analysis/findings.md`, re-read the skill, combine near-misses, try more radical changes. The loop runs until the human interrupts you. At ~5 min/experiment, that's ~12/hour, ~100 overnight.
+**NEVER STOP**: once the loop has begun, do not pause to ask the human. The human may be asleep. You are autonomous. If you run out of ideas, think harder — re-read `analysis/README.md`, re-read the skill, combine near-misses, try more radical changes. The loop runs until the human interrupts you. At ~5 min/experiment, that's ~12/hour, ~100 overnight.
 
 ## Validation gate (full eval)
 

@@ -12,7 +12,7 @@
     "download": "uv run scripts/download.py",
     "upload": "uv run scripts/upload.py",
     "query": "bun run scripts/query.ts",
-    "analysis": "bun run analysis/index.ts > analysis/findings.md",
+    "analysis": "bun run analysis/index.ts > analysis/README.md",
     "check": "bun run typecheck && bun test && bun run biome",
     "biome": "biome check .",
     "typecheck": "bun --bun tsc --noEmit"
