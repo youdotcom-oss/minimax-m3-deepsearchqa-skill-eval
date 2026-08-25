@@ -45,9 +45,9 @@ Two surfaces total, activated by phase (see Phasing): Phase 1 edits only the ski
 - output: an ack string (no instruction injection; enforcement lives in the `tool_call` handler).
 
 `you-search` rewriter (`tool_call` handler):
-- on each `you-search` call, read the stored complexity score.
-- if `score >= threshold`: set `event.input.extraction_mode = "highlights"` (L1); set `event.input.count = 30` (L2).
-- else, or if no score stored yet: apply the configured default (pass-through or force-on) per the run policy.
+- on each `you-search` call, read the stored complexity score and the run policy.
+- L1 (complexity-gated): if `score >= threshold`, set `event.input.extraction_mode = "highlights"`; else leave it.
+- L2 (default-count sweep): set `event.input.count` to the configured swept value when the model omits it (simulating a changed MCP default); optionally override specified counts too, for a clean sweep.
 - never block; only mutate.
 
 ## What you CAN do
@@ -93,13 +93,13 @@ Each experiment runs in a **fixed 5-minute wall budget** (300s) for generate + g
 In Phase 1, attempt every lever as a skill instruction. Levers marked → extension are the prime candidates to escalate to the rewriter in Phase 2 if the model ignores them.
 
 - **L1 Force highlights, complexity-gated** (→ extension: arg injection): instruct the model to set `extraction_mode: "highlights"` on `you-search` for complex questions; escalate to rewriter injection if compliance is low. Evidence: BrowseComp +10pp same-backend; this repo's over-rounding-hurts finding. ~2x tokens → gate to the hard subset. Lead lever; calibrate threshold at 3 and 4.
-- **L2 Enforce count=30** (→ extension: arg injection): instruct the model to set `count: 30`; escalate to rewriter injection if ignored. Evidence: 54% omit count; only 9 of 24,999 used 30.
+- **L2 Default-count sweep** (→ extension: arg injection, MCP simulation): the You.com MCP defaults `count` to 10, and the model's explicit choices cluster at 6–10, so observationally nearly every search runs at count≈10. 3b found no score effect — but only within that 6–10 band; counts of 20 / 30 / 50 are unexplored in the data. Use the rewriter to inject a fixed default `count` on searches where the model omits it (faithfully simulating a changed MCP default) and sweep values (e.g. 10 / 20 / 30 / 50) to map count→F1. The winner tells us whether to change the MCP default itself — the MCP is a change surface, and the rewriter simulates candidate MCP changes before we touch it. Phase 1 first tries instructing `count=30` (expect near-zero compliance, per 3a); Phase 2 runs the sweep by injection.
 - **L3 Stop-early / round cap** (skill): "stop as soon as the answer is supported by read evidence; the 10-call ceiling is a maximum, not a target." Evidence: 5+ rounds 0.65 vs 0.84 at 1; failing trials +65% rounds. Cost-negative.
 - **L4 Read before answering on hard/multi-part** (skill, → extension: read-gate): read at least one page before answering multi-part questions; escalate to a rewriter read-gate if ignored. Evidence: 0-reads worst on 3+ part (0.64) vs 1-2 reads (0.80).
 - **L5 Required Evidence + cite-only-read-URLs** (skill): all three sections required; only cite URLs read via `you-contents`. Evidence: Evidence section in 5 of ~2,500; 646 cited more than read.
 - **L6 Two sources usually sufficient** (skill): two independent sources usually enough; seek a third only on conflict/weakness. Evidence: 2 sources optimal; 3+ worse. Cost-negative.
 
-Suggested order: L1 (calibrate threshold) → L2 → L3, L5, L6 (cost-negative) → L4 (interacts with the L1 gate). Then compose winners and re-test.
+Suggested order: L1 (calibrate threshold) → L2 (sweep 10 / 20 / 30 / 50) → L3, L5, L6 (cost-negative) → L4 (interacts with the L1 gate). Then compose winners and re-test.
 
 ## Output format
 
