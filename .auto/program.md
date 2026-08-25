@@ -98,8 +98,9 @@ In Phase 1, attempt every lever as a skill instruction. Levers marked → extens
 - **L4 Read before answering on hard/multi-part** (skill, → extension: read-gate): read at least one page before answering multi-part questions; escalate to a rewriter read-gate if ignored. Evidence: 0-reads worst on 3+ part (0.64) vs 1-2 reads (0.80).
 - **L5 Required Evidence + cite-only-read-URLs** (skill): all three sections required; only cite URLs read via `you-contents`. Evidence: Evidence section in 5 of ~2,500; 646 cited more than read.
 - **L6 Two sources usually sufficient** (skill): two independent sources usually enough; seek a third only on conflict/weakness. Evidence: 2 sources optimal; 3+ worse. Cost-negative.
+- **L7 Heed MCP error messages** (skill, → extension: error-result augmentation): when a you-search/you-contents call returns an error (validation/422, rate-limit/429, quota/402), read the error, diagnose it, and change the next call — never re-issue the arguments that just failed. For validation errors, restructure (query, include_domains, language, offset, safesearch belong at the top level; `extraction` holds only `extraction_mode` and `full_page`). Evidence: trace `deepsearchqa-274` ignored clear validation errors and re-issued malformed (query-nested-under-`extraction`) calls for ~9 rounds; the 13 trials with malformed nesting pass 0% at 8.69 avg rounds vs 63% / 5.06 for well-formed. Broader than the nesting bug — applies to any MCP error. Tentative note: a trace scan finds MCP errors in 357/2667 trials (13.4%); the 286 that resume searching grind to 8.63 avg rounds and pass 23% vs 68.6% with no error — a possible error-induced over-rounding pattern, but the sample is modest and difficulty-confounded (error trials run more searches → more rate-limit exposure), so treat as a Phase 1 hypothesis to test, not a confirmed lever. Phase 1: skill instruction; Phase 2 escalation if still flailing: rewriter augments the error `tool_result` with an explicit fix directive, or blocks repeated identical failing args.
 
-Suggested order: L1 (calibrate threshold) → L2 (sweep 10 / 20 / 30 / 50) → L3, L5, L6 (cost-negative) → L4 (interacts with the L1 gate). Then compose winners and re-test.
+Suggested order: L1 (calibrate threshold) → L2 (sweep 10 / 20 / 30 / 50) → L3, L5, L6, L7 (cost-negative) → L4 (interacts with the L1 gate). Then compose winners and re-test.
 
 ## Output format
 
@@ -186,4 +187,4 @@ Surviving winners from both phases get promoted to **one** full eval run: 2700 t
 - Complexity threshold for L1/L4: calibrate at 3 and 4 on the sample.
 - Do highlights help easy tasks too? BrowseComp only tests hard; verify on the easy stratum.
 - Judge cost in the 5-min budget; may need a second slot or a cheaper loop-only judge (keep the canonical judge for full eval).
-- Which behavior levers are feasibly enforceable via the rewriter: arg injection covers L1/L2; a read-gate might cover L4; L3/L5/L6 may not be mechanically enforceable and stay skill-only (or get dropped).
+- Which behavior levers are feasibly enforceable via the rewriter: arg injection covers L1/L2; a read-gate might cover L4; error-result augmentation or blocking repeated failing args covers L7; L3/L5/L6 may not be mechanically enforceable and stay skill-only (or get dropped).

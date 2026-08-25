@@ -360,6 +360,160 @@ FORMAT PrettyCompact
    └────────────┴───────────┴────────┴───────────┴───────────┘
 ```
 
+## 3c. you-search parameter usage and effect on success
+
+Beyond `query` and `count` (covered in 3/3a/3b), you-search accepts freshness, offset, country, safesearch, language, include_domains, exclude_domains, boost_domains, extraction (extraction_mode), and crawl_timeout. (A) Which does the model actually set, and with what values? (B) Does any associate with score — or is any apparent effect just the over-rounding confound? avg_rounds is shown so the confound is visible (more rounds -> lower score).
+
+(A) Per-call usage and value distribution (only present params appear):
+
+```sql
+SELECT param, value, count() AS uses
+FROM (
+  SELECT
+    arrayJoin(
+      arrayFilter(
+        x -> tupleElement(x, 2) != '__none__',
+        [
+          tuple('freshness',       if(JSONHas(event, 'input', 'freshness'),       JSONExtractString(event, 'input', 'freshness'), '__none__')),
+          tuple('offset',           if(JSONHas(event, 'input', 'offset'),           toString(JSONExtractInt(event, 'input', 'offset')), '__none__')),
+          tuple('country',          if(JSONHas(event, 'input', 'country'),          JSONExtractString(event, 'input', 'country'), '__none__')),
+          tuple('safesearch',       if(JSONHas(event, 'input', 'safesearch'),       JSONExtractString(event, 'input', 'safesearch'), '__none__')),
+          tuple('language',         if(JSONHas(event, 'input', 'language'),         JSONExtractString(event, 'input', 'language'), '__none__')),
+          tuple('include_domains',  if(JSONHas(event, 'input', 'include_domains'),  concat('n=', toString(length(JSONExtractArrayRaw(event, 'input', 'include_domains')))), '__none__')),
+          tuple('exclude_domains',  if(JSONHas(event, 'input', 'exclude_domains'),  concat('n=', toString(length(JSONExtractArrayRaw(event, 'input', 'exclude_domains')))), '__none__')),
+          tuple('boost_domains',    if(JSONHas(event, 'input', 'boost_domains'),    concat('n=', toString(length(JSONExtractArrayRaw(event, 'input', 'boost_domains')))), '__none__')),
+          tuple('extraction_mode',  if(JSONHas(event, 'input', 'extraction'),       JSONExtractString(event, 'input', 'extraction', 'extraction_mode'), '__none__')),
+          tuple('crawl_timeout',    if(JSONHas(event, 'input', 'crawl_timeout'),    toString(JSONExtractInt(event, 'input', 'crawl_timeout')), '__none__'))
+        ]
+      )
+    ) AS p,
+    tupleElement(p, 1) AS param,
+    tupleElement(p, 2) AS value
+  FROM (
+    SELECT event
+    FROM (SELECT json, events,
+  arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+  arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isSearch
+FROM (
+  SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+))
+    ARRAY JOIN events AS event
+    WHERE JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') = 'you-search'
+      AND JSONExtractString(event, 'status') = 'started'
+  )
+)
+GROUP BY param, value
+ORDER BY param ASC, uses DESC
+FORMAT PrettyCompact
+```
+
+```text
+    ┌─param───────────┬─value──────────────────┬─uses─┐
+ 1. │ boost_domains   │ n=1                    │    4 │
+ 2. │ country         │ US                     │  303 │
+ 3. │ country         │ CA                     │   35 │
+ 4. │ country         │ GB                     │   18 │
+ 5. │ crawl_timeout   │ 20                     │  165 │
+ 6. │ crawl_timeout   │ 30                     │   83 │
+ 7. │ crawl_timeout   │ 10                     │   37 │
+ 8. │ crawl_timeout   │ 60                     │   20 │
+ 9. │ exclude_domains │ n=1                    │    1 │
+10. │ extraction_mode │ highlights             │  265 │
+11. │ extraction_mode │ full_page              │  196 │
+12. │ freshness       │ year                   │   63 │
+13. │ freshness       │ 2000-01-01to2026-12-31 │    7 │
+14. │ freshness       │ 2004-01-01to2005-12-31 │    3 │
+15. │ freshness       │ 2004-01-01to2004-12-31 │    1 │
+16. │ freshness       │ 2004-01-01to2006-12-31 │    1 │
+17. │ include_domains │ n=1                    │  494 │
+18. │ include_domains │ n=2                    │   12 │
+19. │ include_domains │ n=3                    │    4 │
+20. │ language        │ EN                     │  308 │
+21. │ offset          │ 0                      │  308 │
+22. │ safesearch      │ moderate               │  252 │
+23. │ safesearch      │ off                    │   97 │
+24. │ safesearch      │ strict                 │   67 │
+    └─────────────────┴────────────────────────┴──────┘
+```
+
+(B) Trial-level used vs not used — score, pass, avg search rounds:
+
+```sql
+SELECT
+  param,
+  if(used, 'used', 'not used') AS usage,
+  count() AS trials,
+  round(avg(score), 4) AS avg_score,
+  round(countIf(pass) / count(), 4) AS pass_rate,
+  round(avg(searchRounds), 2) AS avg_rounds
+FROM (
+  SELECT score, pass, searchRounds,
+    arrayJoin([
+      tuple('freshness',      toUInt8(arrayExists(e -> JSONHas(e, 'input', 'freshness'),      searchEvents))),
+      tuple('offset',          toUInt8(arrayExists(e -> JSONHas(e, 'input', 'offset'),          searchEvents))),
+      tuple('country',         toUInt8(arrayExists(e -> JSONHas(e, 'input', 'country'),         searchEvents))),
+      tuple('safesearch',      toUInt8(arrayExists(e -> JSONHas(e, 'input', 'safesearch'),      searchEvents))),
+      tuple('language',        toUInt8(arrayExists(e -> JSONHas(e, 'input', 'language'),        searchEvents))),
+      tuple('include_domains', toUInt8(arrayExists(e -> JSONHas(e, 'input', 'include_domains'), searchEvents))),
+      tuple('exclude_domains', toUInt8(arrayExists(e -> JSONHas(e, 'input', 'exclude_domains'), searchEvents))),
+      tuple('boost_domains',   toUInt8(arrayExists(e -> JSONHas(e, 'input', 'boost_domains'),   searchEvents))),
+      tuple('extraction_mode', toUInt8(arrayExists(e -> JSONHas(e, 'input', 'extraction'),      searchEvents))),
+      tuple('crawl_timeout',   toUInt8(arrayExists(e -> JSONHas(e, 'input', 'crawl_timeout'),   searchEvents)))
+    ]) AS p,
+    tupleElement(p, 1) AS param,
+    tupleElement(p, 2) AS used
+  FROM (
+    SELECT score, pass, searchRounds, searchEvents
+    FROM (
+      SELECT
+        JSONExtractFloat(json, 'score') AS score,
+        JSONExtractBool(json, 'pass') AS pass,
+        JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+        arrayFilter(e -> JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', events) AS searchEvents,
+        length(arrayDistinct(arrayMap(t -> tupleElement(t, 1), arrayFilter(t -> tupleElement(t, 2) = 1, arrayZip(asstCum, isSearch))))) AS searchRounds
+      FROM (SELECT json, events,
+  arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+  arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isSearch
+FROM (
+  SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+))
+    )
+    WHERE gradable AND searchRounds > 0
+  )
+)
+GROUP BY param, usage
+ORDER BY param ASC, usage ASC
+FORMAT PrettyCompact
+```
+
+```text
+    ┌─param───────────┬─usage────┬─trials─┬─avg_score─┬─pass_rate─┬─avg_rounds─┐
+ 1. │ boost_domains   │ not used │   2666 │    0.7467 │    0.6272 │       5.08 │
+ 2. │ boost_domains   │ used     │      1 │         1 │         1 │          1 │
+ 3. │ country         │ not used │   2633 │    0.7484 │    0.6301 │       5.08 │
+ 4. │ country         │ used     │     34 │    0.6227 │    0.4118 │       4.35 │
+ 5. │ crawl_timeout   │ not used │   2638 │    0.7487 │    0.6296 │       5.08 │
+ 6. │ crawl_timeout   │ used     │     29 │    0.5817 │    0.4138 │       4.45 │
+ 7. │ exclude_domains │ not used │   2666 │    0.7468 │    0.6275 │       5.07 │
+ 8. │ exclude_domains │ used     │      1 │    0.9091 │         0 │         21 │
+ 9. │ extraction_mode │ not used │   2608 │    0.7485 │    0.6319 │       5.08 │
+10. │ extraction_mode │ used     │     59 │    0.6744 │    0.4237 │       4.83 │
+11. │ freshness       │ not used │   2654 │    0.7471 │    0.6285 │       5.07 │
+12. │ freshness       │ used     │     13 │    0.6893 │    0.3846 │       5.69 │
+13. │ include_domains │ not used │   2580 │    0.7495 │    0.6295 │       5.09 │
+14. │ include_domains │ used     │     87 │     0.669 │    0.5632 │       4.51 │
+15. │ language        │ not used │   2634 │    0.7485 │    0.6302 │       5.08 │
+16. │ language        │ used     │     33 │    0.6113 │    0.3939 │       4.42 │
+17. │ offset          │ not used │   2634 │    0.7485 │    0.6302 │       5.08 │
+18. │ offset          │ used     │     33 │    0.6113 │    0.3939 │       4.42 │
+19. │ safesearch      │ not used │   2611 │    0.7483 │    0.6296 │       5.05 │
+20. │ safesearch      │ used     │     56 │    0.6794 │    0.5179 │       6.11 │
+    └─────────────────┴──────────┴────────┴───────────┴───────────┴────────────┘
+```
+
 ## 4. Citation and output-format fidelity
 
 The skill mandates real-URL inline citations and an Answer / Evidence / Sources section structure. Does the model cite decoratively or ground its claims? Extract the final assistant message, count citation URLs, detect the section headers, compare citations against pages actually read, and bucket by citation count vs. correctness.

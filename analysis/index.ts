@@ -4,6 +4,7 @@ import { run as readDifficulty } from './read-difficulty.ts'
 import { run as readDiscipline } from './read-discipline.ts'
 import { run as searchCountDetail } from './search-count-detail.ts'
 import { run as searchCountRound } from './search-count-round.ts'
+import { run as searchParams } from './search-params.ts'
 import { run as sourceDiversity } from './source-diversity.ts'
 import { run as toolBudget } from './tool-budget.ts'
 
@@ -22,6 +23,7 @@ const directions = [
   paramCompliance,
   searchCountDetail,
   searchCountRound,
+  searchParams,
   citationFidelity,
   sourceDiversity,
 ]
