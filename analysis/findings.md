@@ -631,3 +631,1004 @@ FORMAT PrettyCompact
    └───────────────┴─────────────┴────────┴───────────┴───────────┘
 ```
 
+## 6a. Round profiles & termination patterns
+
+Round profiles and termination patterns: how does trial behaviour evolve round-by-round, and how do final-round signals distinguish PASS from FAIL? Three dimensions: (1) assistant message content depth per round, testing whether reasoning shrinks in later rounds or in the final answer; (2) search and read intensity per round, testing whether FAIL profiles escalate while PASS stays flat; (3) termination behaviour — reads in the final search round(s), zero-read trials, and the gap between last read and last search.
+
+(1a) Assistant message content length by round band × pass/fail:
+
+```sql
+WITH base AS (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+)
+SELECT
+  multiIf(rnd = 1, '1', rnd = 2, '2', rnd = 3, '3', rnd = 4, '4', '5+') AS round_band,
+  pass,
+  count() AS messages,
+  round(avg(length(JSONExtractString(event, 'content'))), 2) AS avg_content_len,
+  round(countIf(length(JSONExtractString(event, 'content')) < 50) / count(), 4) AS pct_short
+FROM base
+ARRAY JOIN events AS event, asstCum AS rnd
+WHERE JSONExtractString(event, 'type') = 'message'
+  AND JSONExtractString(event, 'role') = 'assistant'
+  AND JSONExtractString(event, 'content') != ''
+  AND rnd > 0
+GROUP BY round_band, pass
+ORDER BY round_band ASC, pass ASC
+FORMAT PrettyCompact
+```
+
+```text
+    ┌─round_band─┬─pass─┬─messages─┬─avg_content_len─┬─pct_short─┐
+ 1. │ 1          │    0 │      743 │          137.75 │         0 │
+ 2. │ 1          │    1 │     1189 │          137.92 │    0.0034 │
+ 3. │ 2          │    0 │      697 │          130.79 │      0.01 │
+ 4. │ 2          │    1 │     1177 │          166.08 │    0.0127 │
+ 5. │ 3          │    0 │      797 │          412.88 │    0.0125 │
+ 6. │ 3          │    1 │     1432 │          642.63 │    0.0056 │
+ 7. │ 4          │    0 │      744 │          469.95 │    0.0094 │
+ 8. │ 4          │    1 │     1164 │          718.77 │    0.0095 │
+ 9. │ 5+         │    0 │     6461 │          715.04 │    0.0155 │
+10. │ 5+         │    1 │     5082 │          988.31 │    0.0132 │
+    └────────────┴──────┴──────────┴─────────────────┴───────────┘
+```
+
+(1b) Final assistant message content length × pass/fail:
+
+```sql
+WITH base AS (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+)
+SELECT
+  pass,
+  count() AS trials,
+  round(avg(length(finalContent)), 2) AS avg_final_content_len,
+  round(countIf(length(finalContent) < 100) / count(), 4) AS pct_final_short
+FROM (
+  SELECT
+    pass,
+    arrayFilter(e -> JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', events) AS asstMsgs,
+    JSONExtractString(arrayElement(asstMsgs, length(asstMsgs)), 'content') AS finalContent
+  FROM base
+)
+WHERE length(finalContent) > 0
+GROUP BY pass
+ORDER BY pass ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─pass─┬─trials─┬─avg_final_content_len─┬─pct_final_short─┐
+1. │    0 │    821 │               3042.77 │          0.0073 │
+2. │    1 │   1681 │               2671.89 │          0.0089 │
+   └──────┴────────┴───────────────────────┴─────────────────┘
+```
+
+(2) Round-by-round search and read evolution × pass/fail:
+
+```sql
+WITH base AS (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractString(json, 'taskId') AS taskId,
+    JSONExtractInt(json, 'trialIndex') AS trialIndex,
+    events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isSearch,
+    arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-contents' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isRead
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+),
+per_round AS (
+  SELECT pass, taskId, trialIndex, rnd,
+    countIf(JSONExtractString(event, 'type') = 'tool_call' AND JSONExtractString(event, 'name') = 'you-search' AND JSONExtractString(event, 'status') = 'started') AS searches,
+    countIf(JSONExtractString(event, 'type') = 'tool_call' AND JSONExtractString(event, 'name') = 'you-contents' AND JSONExtractString(event, 'status') = 'started') AS reads
+  FROM base
+  ARRAY JOIN events AS event, asstCum AS rnd
+  WHERE rnd > 0
+  GROUP BY pass, taskId, trialIndex, rnd
+)
+SELECT
+  multiIf(rnd = 1, '1', rnd = 2, '2', rnd = 3, '3', rnd = 4, '4', '5+') AS round_band,
+  pass,
+  count() AS trial_rounds,
+  round(avg(searches), 2) AS avg_searches,
+  round(avg(reads), 2) AS avg_reads,
+  round(countIf(reads > 0) / count(), 4) AS pct_with_any_read
+FROM per_round
+GROUP BY round_band, pass
+ORDER BY round_band ASC, pass ASC
+FORMAT PrettyCompact
+```
+
+```text
+    ┌─round_band─┬─pass─┬─trial_rounds─┬─avg_searches─┬─avg_reads─┬─pct_with_any_read─┐
+ 1. │ 1          │    0 │         1008 │         2.16 │      0.02 │            0.0159 │
+ 2. │ 1          │    1 │         1681 │         2.12 │      0.02 │            0.0196 │
+ 3. │ 2          │    0 │         1007 │         0.85 │      1.01 │            0.8083 │
+ 4. │ 2          │    1 │         1681 │         0.76 │      1.03 │            0.8079 │
+ 5. │ 3          │    0 │         1003 │         1.24 │       0.6 │            0.5194 │
+ 6. │ 3          │    1 │         1646 │         1.24 │       0.5 │            0.4307 │
+ 7. │ 4          │    0 │          899 │         1.07 │      0.68 │            0.5962 │
+ 8. │ 4          │    1 │         1317 │         0.98 │      0.61 │            0.5262 │
+ 9. │ 5+         │    0 │         7530 │         0.89 │      0.63 │            0.5793 │
+10. │ 5+         │    1 │         5670 │         0.86 │      0.58 │             0.522 │
+    └────────────┴──────┴──────────────┴──────────────┴───────────┴───────────────────┘
+```
+
+(3) Termination patterns — final round reads, zero-read rate, read-search gap:
+
+```sql
+WITH base AS (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractString(json, 'taskId') AS taskId,
+    JSONExtractInt(json, 'trialIndex') AS trialIndex,
+    events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isSearch,
+    arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-contents' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isRead
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+),
+trial_stats AS (
+  SELECT pass,
+    arraySum(isSearch) AS totalSearches,
+    arraySum(isRead) AS totalReads,
+    arraySort(arrayDistinct(arrayFilter((r, s) -> s = 1, asstCum, isSearch))) AS srchRounds,
+    arraySort(arrayDistinct(arrayFilter((r, s) -> s = 1, asstCum, isRead))) AS readRounds,
+    events,
+    asstCum
+  FROM base
+  WHERE arraySum(isSearch) > 0
+),
+computed AS (
+  SELECT pass,
+    totalSearches,
+    totalReads,
+    srchRounds,
+    readRounds,
+    srchRounds[length(srchRounds)] AS lastSrch,
+    if(length(readRounds) > 0, readRounds[length(readRounds)], 0) AS lastRead,
+    srchRounds[length(srchRounds)] - if(length(readRounds) > 0, readRounds[length(readRounds)], 0) AS gap,
+    if(length(srchRounds) >= 2, srchRounds[length(srchRounds) - 1], srchRounds[length(srchRounds)]) AS secondLastSrch,
+    arraySum(arrayMap((e, r) -> if(
+      r = srchRounds[length(srchRounds)] AND
+      JSONExtractString(e, 'type') = 'tool_call' AND
+      JSONExtractString(e, 'name') = 'you-contents' AND
+      JSONExtractString(e, 'status') = 'started', 1, 0),
+      events, asstCum)) AS readsInFinalSrch,
+    arraySum(arrayMap((e, r) -> if(
+      (r = srchRounds[length(srchRounds)] OR r = if(length(srchRounds) >= 2, srchRounds[length(srchRounds) - 1], srchRounds[length(srchRounds)])) AND
+      JSONExtractString(e, 'type') = 'tool_call' AND
+      JSONExtractString(e, 'name') = 'you-contents' AND
+      JSONExtractString(e, 'status') = 'started', 1, 0),
+      events, asstCum)) AS readsInLast2Srch
+  FROM trial_stats
+)
+SELECT
+  pass,
+  count() AS trials,
+  round(avg(totalSearches), 2) AS avg_total_searches,
+  round(avg(totalReads), 2) AS avg_total_reads,
+  round(avg(readsInFinalSrch), 2) AS avg_reads_in_final_search_round,
+  round(avg(readsInLast2Srch), 2) AS avg_reads_in_last_2_search_rounds,
+  round(countIf(totalReads = 0) / count(), 4) AS pct_zero_total_reads,
+  round(avg(gap), 2) AS avg_gap_last_search_to_last_read,
+  round(avg(lastSrch), 2) AS avg_last_search_round,
+  round(avg(lastRead), 2) AS avg_last_read_round
+FROM computed
+GROUP BY pass
+ORDER BY pass ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─pass─┬─trials─┬─avg_total_searches─┬─avg_total_reads─┬─avg_reads_in_final_search_round─┬─avg_reads_in_last_2_search_rounds─┬─pct_zero_total_reads─┬─avg_gap_last_search_to_last_read─┬─avg_last_search_round─┬─avg_last_read_round─┐
+1. │    0 │   1006 │              11.88 │            6.94 │                            0.32 │                              0.64 │               0.0159 │                            -0.24 │                  9.43 │                9.68 │
+2. │    1 │   1673 │                7.8 │            3.98 │                            0.27 │                              0.52 │               0.0652 │                            -0.27 │                  5.28 │                5.55 │
+   └──────┴────────┴────────────────────┴─────────────────┴─────────────────────────────────┴───────────────────────────────────┴──────────────────────┴──────────────────────────────────┴───────────────────────┴─────────────────────┘
+```
+
+## 6b. Query evolution, read repetition, and final answer quality
+
+Three sub-analyses probing trajectory-level patterns that may distinguish PASS from FAIL trials.
+
+### 6a. Query evolution across rounds
+
+For trials with 3+ search rounds, compare the first you-search query to the last. Metrics: average character length (first vs last), length change, whether the last query is shorter than the first (degradation), whether the first and last share a common 50- or 25-character prefix (refocus vs drift), and the round span between them. Hypothesis: FAIL trials show query degradation (shorter last queries, less specificity) over more rounds.
+
+Query 1 — query evolution (trials with 3+ search rounds):
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS outcome,
+  count() AS trials,
+  round(avg(firstLen), 1) AS avg_first_len,
+  round(avg(lastLen), 1) AS avg_last_len,
+  round(avg(lastLen - firstLen), 1) AS avg_len_change,
+  round(avg(roundSpan), 2) AS avg_round_span,
+  round(countIf(lastLen < firstLen) / count(), 4) AS pct_shorter_last,
+  round(countIf(hasCommonPrefix50) / count(), 4) AS pct_common_prefix_50,
+  round(countIf(hasCommonPrefix25) / count(), 4) AS pct_common_prefix_25,
+  round(countIf(lastLen > firstLen * 1.5) / count(), 4) AS pct_last_much_longer
+FROM (
+  SELECT
+    pass,
+    length(firstQuery) AS firstLen,
+    length(lastQuery) AS lastLen,
+    lastRound - firstRound AS roundSpan,
+    firstQuery != '' AND lastQuery != '' AND substring(firstQuery, 1, 50) = substring(lastQuery, 1, 50) AS hasCommonPrefix50,
+    firstQuery != '' AND lastQuery != '' AND substring(firstQuery, 1, 25) = substring(lastQuery, 1, 25) AS hasCommonPrefix25
+  FROM (
+    SELECT
+      JSONExtractBool(json, 'pass') AS pass,
+      JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+      JSONExtractString(searchEvents[1], 'input', 'query') AS firstQuery,
+      JSONExtractString(searchEvents[-1], 'input', 'query') AS lastQuery,
+      tupleElement(searchRoundTuples[1], 1) AS firstRound,
+      tupleElement(searchRoundTuples[-1], 1) AS lastRound
+    FROM (
+      SELECT
+        json, pass, gradable,
+        arrayFilter(e -> JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', events) AS searchEvents,
+        arrayFilter(t -> tupleElement(t, 2) = 1, arrayZip(asstCum, isSearch)) AS searchRoundTuples,
+        length(arrayDistinct(arrayMap(t -> tupleElement(t, 1), arrayFilter(t -> tupleElement(t, 2) = 1, arrayZip(asstCum, isSearch))))) AS numSearchRounds
+      FROM (
+        SELECT json,
+          JSONExtractBool(json, 'pass') AS pass,
+          JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+          events, asstCum, isSearch
+        FROM (SELECT json, events,
+  arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+  arrayMap(e -> if(JSONExtractString(e, 'type') = 'tool_call' AND JSONExtractString(e, 'name') = 'you-search' AND JSONExtractString(e, 'status') = 'started', 1, 0), events) AS isSearch
+FROM (
+  SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+))
+      )
+    )
+    WHERE gradable AND numSearchRounds >= 3
+  )
+  WHERE firstQuery != '' AND lastQuery != ''
+)
+GROUP BY outcome
+ORDER BY outcome ASC
+FORMAT PrettyCompact
+SETTINGS max_memory_usage = 40000000000
+```
+
+```text
+   ┌─outcome─┬─trials─┬─avg_first_len─┬─avg_last_len─┬─avg_len_change─┬─avg_round_span─┬─pct_shorter_last─┬─pct_common_prefix_50─┬─pct_common_prefix_25─┬─pct_last_much_longer─┐
+1. │ FAIL    │    723 │          66.3 │         79.4 │           13.1 │          11.21 │           0.2849 │                    0 │               0.0069 │               0.2476 │
+2. │ PASS    │    940 │          64.9 │         72.8 │              8 │           6.96 │           0.3521 │                    0 │               0.0074 │               0.1862 │
+   └─────────┴────────┴───────────────┴──────────────┴────────────────┴────────────────┴──────────────────┴──────────────────────┴──────────────────────┴──────────────────────┘
+```
+
+
+### 6b. Read repetition
+
+Per trial, count total URLs submitted to you-contents (sum of input.urls array lengths) and distinct URLs read. Repetition ratio = total / distinct (1.0 = no repetition, >1 = some URLs re-read). Shown as aggregate PASS/FAIL split and bucketed by read count. Hypothesis: FAIL trials re-read the same URLs more, suggesting they get stuck on unhelpful pages.
+
+Query 2a — read repetition by pass/fail:
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS outcome,
+  count() AS trials,
+  round(avg(distinctUrls), 1) AS avg_distinct_urls,
+  round(avg(totalReads), 1) AS avg_total_reads,
+  round(avg(totalReads / greatest(distinctUrls, 1)), 3) AS avg_repetition_ratio,
+  round(countIf(totalReads / greatest(distinctUrls, 1) > 1.5) / count(), 4) AS pct_heavy_reread,
+  round(avg(if(totalReads / greatest(distinctUrls, 1) > 1.5, totalReads / greatest(distinctUrls, 1), NULL)), 3) AS avg_ratio_when_heavy
+FROM (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    totalReads,
+    distinctUrls
+  FROM (SELECT
+  json,
+  arraySum(arrayMap(e -> length(JSONExtractArrayRaw(e, 'input', 'urls')),
+    arrayFilter(e -> JSONExtractString(e, 'type') = 'tool_call'
+      AND JSONExtractString(e, 'name') = 'you-contents'
+      AND JSONExtractString(e, 'status') = 'started',
+      JSONExtractArrayRaw(json, 'trial', 'trajectory')))) AS totalReads,
+  length(arrayDistinct(
+    arrayFlatten(
+      arrayMap(e -> arrayMap(u -> JSONExtractString(u), JSONExtractArrayRaw(e, 'input', 'urls')),
+        arrayFilter(e -> JSONExtractString(e, 'type') = 'tool_call'
+          AND JSONExtractString(e, 'name') = 'you-contents'
+          AND JSONExtractString(e, 'status') = 'started',
+          JSONExtractArrayRaw(json, 'trial', 'trajectory')))
+    )
+  )) AS distinctUrls
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String'))
+  WHERE gradable AND totalReads > 0
+)
+GROUP BY outcome
+ORDER BY outcome ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─outcome─┬─trials─┬─avg_distinct_urls─┬─avg_total_reads─┬─avg_repetition_ratio─┬─pct_heavy_reread─┬─avg_ratio_when_heavy─┐
+1. │ FAIL    │    979 │              10.4 │            11.4 │                1.098 │           0.0368 │                1.966 │
+2. │ PASS    │   1572 │               6.8 │             7.2 │                1.048 │            0.021 │                1.885 │
+   └─────────┴────────┴───────────────────┴─────────────────┴──────────────────────┴──────────────────┴──────────────────────┘
+```
+
+
+Query 2b — read repetition bucketed by read count × pass/fail:
+
+```sql
+SELECT
+  multiIf(totalReads <= 2, '1-2 reads', totalReads <= 5, '3-5 reads', totalReads <= 10, '6-10 reads', '11+ reads') AS read_band,
+  if(pass, 'PASS', 'FAIL') AS outcome,
+  count() AS trials,
+  round(avg(distinctUrls), 1) AS avg_distinct_urls,
+  round(avg(totalReads / greatest(distinctUrls, 1)), 3) AS avg_repetition_ratio,
+  round(countIf(totalReads / greatest(distinctUrls, 1) > 1.5) / count(), 4) AS pct_heavy_reread
+FROM (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    totalReads,
+    distinctUrls
+  FROM (SELECT
+  json,
+  arraySum(arrayMap(e -> length(JSONExtractArrayRaw(e, 'input', 'urls')),
+    arrayFilter(e -> JSONExtractString(e, 'type') = 'tool_call'
+      AND JSONExtractString(e, 'name') = 'you-contents'
+      AND JSONExtractString(e, 'status') = 'started',
+      JSONExtractArrayRaw(json, 'trial', 'trajectory')))) AS totalReads,
+  length(arrayDistinct(
+    arrayFlatten(
+      arrayMap(e -> arrayMap(u -> JSONExtractString(u), JSONExtractArrayRaw(e, 'input', 'urls')),
+        arrayFilter(e -> JSONExtractString(e, 'type') = 'tool_call'
+          AND JSONExtractString(e, 'name') = 'you-contents'
+          AND JSONExtractString(e, 'status') = 'started',
+          JSONExtractArrayRaw(json, 'trial', 'trajectory')))
+    )
+  )) AS distinctUrls
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String'))
+  WHERE gradable AND totalReads > 0
+)
+GROUP BY read_band, outcome
+ORDER BY read_band ASC, outcome ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─read_band──┬─outcome─┬─trials─┬─avg_distinct_urls─┬─avg_repetition_ratio─┬─pct_heavy_reread─┐
+1. │ 1-2 reads  │ FAIL    │    160 │               1.5 │                1.056 │           0.0562 │
+2. │ 1-2 reads  │ PASS    │    451 │               1.6 │                1.013 │           0.0133 │
+3. │ 11+ reads  │ FAIL    │    365 │              20.7 │                1.107 │           0.0274 │
+4. │ 11+ reads  │ PASS    │    341 │              17.7 │                1.093 │           0.0264 │
+5. │ 3-5 reads  │ FAIL    │    232 │               3.7 │                1.094 │           0.0474 │
+6. │ 3-5 reads  │ PASS    │    469 │               3.8 │                1.035 │           0.0171 │
+7. │ 6-10 reads │ FAIL    │    222 │                 7 │                1.116 │            0.027 │
+8. │ 6-10 reads │ PASS    │    311 │               7.1 │                1.069 │           0.0322 │
+   └────────────┴─────────┴────────┴───────────────────┴──────────────────────┴──────────────────┘
+```
+
+
+### 6c. Final answer quality markers
+
+Extract the last assistant message per trial and measure: character length, presence of Answer/Evidence/Sources section headers (the skill-mandated structure), and citation URL count. Hypothesis: FAIL trials produce shorter, less structured final answers with fewer citations.
+
+Query 3 — final answer quality markers:
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS outcome,
+  count() AS trials,
+  round(avg(charLength), 0) AS avg_char_length,
+  countIf(charLength < 500) AS trials_under_500_chars,
+  round(countIf(hasAnswer) / count(), 4) AS pct_answer_section,
+  round(countIf(hasEvidence) / count(), 4) AS pct_evidence_section,
+  round(countIf(hasSources) / count(), 4) AS pct_sources_section,
+  round(countIf(hasAnswer AND hasEvidence AND hasSources) / count(), 4) AS pct_all_three,
+  round(avg(citationCount), 1) AS avg_citations,
+  round(countIf(citationCount = 0) / count(), 4) AS pct_zero_citations
+FROM (
+  SELECT
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    length(content) AS charLength,
+    positionCaseInsensitive(content, '## Answer') > 0 AS hasAnswer,
+    positionCaseInsensitive(content, '## Evidence') > 0 AS hasEvidence,
+    positionCaseInsensitive(content, '## Sources') > 0 AS hasSources,
+    length(extractAll(content, 'https?://[0-9A-Za-z./_:?=&%~+#-]+')) AS citationCount
+  FROM (
+    SELECT
+      json,
+      JSONExtractString(
+        arrayFilter(
+          e -> JSONExtractString(e, 'type') = 'message'
+            AND JSONExtractString(e, 'role') = 'assistant',
+          JSONExtractArrayRaw(json, 'trial', 'trajectory')
+        )[-1],
+        'content'
+      ) AS content
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+  WHERE gradable AND content != ''
+)
+GROUP BY outcome
+ORDER BY outcome ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─outcome─┬─trials─┬─avg_char_length─┬─trials_under_500_chars─┬─pct_answer_section─┬─pct_evidence_section─┬─pct_sources_section─┬─pct_all_three─┬─avg_citations─┬─pct_zero_citations─┐
+1. │ FAIL    │    811 │            3044 │                     15 │             0.3206 │               0.0025 │              0.3699 │        0.0025 │           4.1 │             0.1591 │
+2. │ PASS    │   1681 │            2672 │                     26 │             0.4355 │               0.0018 │              0.4212 │        0.0006 │           4.3 │              0.113 │
+   └─────────┴────────┴─────────────────┴────────────────────────┴────────────────────┴──────────────────────┴─────────────────────┴───────────────┴───────────────┴────────────────────┘
+```
+
+## 6c. Search-to-read coupling and error timing
+
+Four analyses of how the model pairs you-search with you-contents across assistant turns, to identify patterns that distinguish PASS from FAIL trials.
+
+**Hypotheses tested:**
+1. FAIL trials have more search-only (blind) rounds, especially in later rounds.
+2. PASS trials use more parallel searches per round (broader exploration).
+3. FAIL trials are either unfocused (too many searches) or too narrow (too few, no read) in round 1.
+4. FAIL trials get less selective in later rounds (more URLs per read, "grabbing at straws").
+
+1a. Search-to-read coupling — overall PASS vs FAIL
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS result,
+  count() AS trials,
+  round(avg(coupled), 2) AS avg_coupled,
+  round(avg(blind), 2) AS avg_blind,
+  round(avg(just_read), 2) AS avg_just_read,
+  round(avg(search_rounds), 2) AS avg_search_rounds,
+  round(avg(active_rounds), 2) AS avg_active_rounds,
+  round(avg(maxAsstCum), 2) AS avg_total_rounds,
+  round(sum(coupled) / greatest(sum(search_rounds), 1), 4) AS pct_coupled,
+  round(sum(blind) / greatest(sum(search_rounds), 1), 4) AS pct_blind,
+  round(sum(just_read) / greatest(sum(maxAsstCum), 1), 4) AS pct_just_read
+FROM (
+  SELECT
+    pass, taskId, trialIndex, maxAsstCum,
+    countIf(hasSearch = 1 AND hasRead = 1) AS coupled,
+    countIf(hasSearch = 1 AND hasRead = 0) AS blind,
+    countIf(hasSearch = 0 AND hasRead = 1) AS just_read,
+    countIf(hasSearch = 1) AS search_rounds,
+    count() AS active_rounds
+  FROM (
+    SELECT
+      JSONExtractString(json, 'taskId') AS taskId,
+  JSONExtractInt(json, 'trialIndex') AS trialIndex,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+      asstCumVal,
+      maxAsstCum,
+      max(if(JSONExtractString(event, 'type') = 'tool_call' AND JSONExtractString(event, 'name') = 'you-search' AND JSONExtractString(event, 'status') = 'started', 1, 0)) AS hasSearch,
+      max(if(JSONExtractString(event, 'type') = 'tool_call' AND JSONExtractString(event, 'name') = 'you-contents' AND JSONExtractString(event, 'status') = 'started', 1, 0)) AS hasRead
+    FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+    ARRAY JOIN events AS event, asstCum AS asstCumVal
+    WHERE asstCumVal > 0
+      AND JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') IN ('you-search', 'you-contents')
+      AND JSONExtractString(event, 'status') = 'started'
+    GROUP BY taskId, trialIndex, score, pass, gradable, maxAsstCum, asstCumVal
+  )
+  WHERE gradable
+  GROUP BY pass, taskId, trialIndex, maxAsstCum
+)
+GROUP BY result
+ORDER BY result ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─result─┬─trials─┬─avg_coupled─┬─avg_blind─┬─avg_just_read─┬─avg_search_rounds─┬─avg_active_rounds─┬─avg_total_rounds─┬─pct_coupled─┬─pct_blind─┬─pct_just_read─┐
+1. │ FAIL   │    995 │        2.63 │      4.14 │           3.6 │              6.77 │             10.37 │            11.37 │       0.388 │     0.612 │        0.3164 │
+2. │ PASS   │   1681 │        1.33 │      2.71 │          2.09 │              4.04 │              6.14 │             7.14 │      0.3287 │    0.6713 │        0.2935 │
+   └────────┴────────┴─────────────┴───────────┴───────────────┴───────────────────┴───────────────────┴──────────────────┴─────────────┴───────────┴───────────────┘
+```
+
+1b. Coupling by search-round band — does coupling drop for multi-round failures?
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS result,
+  multiIf(search_rounds = 1, '1 round', search_rounds = 2, '2 rounds', search_rounds = 3, '3 rounds', '4+ rounds') AS search_band,
+  count() AS trials,
+  round(avg(coupled), 2) AS avg_coupled,
+  round(avg(blind), 2) AS avg_blind,
+  round(avg(just_read), 2) AS avg_just_read,
+  round(avg(search_rounds), 2) AS avg_search_rounds,
+  round(sum(coupled) / greatest(sum(search_rounds), 1), 4) AS pct_coupled,
+  round(sum(blind) / greatest(sum(search_rounds), 1), 4) AS pct_blind
+FROM (
+  SELECT
+    pass, taskId, trialIndex,
+    countIf(hasSearch = 1 AND hasRead = 1) AS coupled,
+    countIf(hasSearch = 1 AND hasRead = 0) AS blind,
+    countIf(hasSearch = 0 AND hasRead = 1) AS just_read,
+    countIf(hasSearch = 1) AS search_rounds
+  FROM (
+    SELECT
+      JSONExtractString(json, 'taskId') AS taskId,
+  JSONExtractInt(json, 'trialIndex') AS trialIndex,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+      asstCumVal,
+      max(if(JSONExtractString(event, 'type') = 'tool_call' AND JSONExtractString(event, 'name') = 'you-search' AND JSONExtractString(event, 'status') = 'started', 1, 0)) AS hasSearch,
+      max(if(JSONExtractString(event, 'type') = 'tool_call' AND JSONExtractString(event, 'name') = 'you-contents' AND JSONExtractString(event, 'status') = 'started', 1, 0)) AS hasRead
+    FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+    ARRAY JOIN events AS event, asstCum AS asstCumVal
+    WHERE asstCumVal > 0
+      AND JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') IN ('you-search', 'you-contents')
+      AND JSONExtractString(event, 'status') = 'started'
+    GROUP BY taskId, trialIndex, score, pass, gradable, asstCumVal
+  )
+  WHERE gradable
+  GROUP BY pass, taskId, trialIndex
+)
+GROUP BY result, search_band
+ORDER BY result ASC, search_band ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─result─┬─search_band─┬─trials─┬─avg_coupled─┬─avg_blind─┬─avg_just_read─┬─avg_search_rounds─┬─pct_coupled─┬─pct_blind─┐
+1. │ FAIL   │ 1 round     │    134 │        0.01 │      0.99 │           1.7 │                 1 │      0.0075 │    0.9925 │
+2. │ FAIL   │ 2 rounds    │    133 │        0.45 │      1.55 │          1.67 │                 2 │      0.2256 │    0.7744 │
+3. │ FAIL   │ 3 rounds    │    110 │        0.93 │      2.07 │          2.48 │                 3 │      0.3091 │    0.6909 │
+4. │ FAIL   │ 4+ rounds   │    618 │        3.97 │      5.75 │          4.62 │              9.72 │       0.408 │     0.592 │
+5. │ PASS   │ 1 round     │    363 │           0 │         1 │          1.28 │                 1 │      0.0028 │    0.9972 │
+6. │ PASS   │ 2 rounds    │    370 │         0.4 │       1.6 │          1.56 │                 2 │         0.2 │       0.8 │
+7. │ PASS   │ 3 rounds    │    263 │        0.83 │      2.17 │           1.9 │                 3 │      0.2776 │    0.7224 │
+8. │ PASS   │ 4+ rounds   │    685 │        2.72 │      4.43 │          2.89 │              7.16 │      0.3805 │    0.6195 │
+   └────────┴─────────────┴────────┴─────────────┴───────────┴───────────────┴───────────────────┴─────────────┴───────────┘
+```
+
+2a. Parallel search rounds — PASS vs FAIL
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS result,
+  count() AS trials,
+  round(avg(parallel_rounds), 2) AS avg_parallel_rounds,
+  round(avg(search_rounds), 2) AS avg_search_rounds,
+  round(sum(parallel_rounds) / greatest(sum(search_rounds), 1), 4) AS pct_parallel,
+  round(avg(avg_searches_per_round), 2) AS avg_searches_per_round,
+  round(avg(max_searches_in_round), 2) AS avg_max_searches_in_round
+FROM (
+  SELECT
+    pass, taskId, trialIndex,
+    countIf(search_count >= 2) AS parallel_rounds,
+    count() AS search_rounds,
+    avg(search_count) AS avg_searches_per_round,
+    max(search_count) AS max_searches_in_round
+  FROM (
+    SELECT
+      JSONExtractString(json, 'taskId') AS taskId,
+  JSONExtractInt(json, 'trialIndex') AS trialIndex,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+      asstCumVal,
+      count() AS search_count
+    FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+    ARRAY JOIN events AS event, asstCum AS asstCumVal
+    WHERE asstCumVal > 0
+      AND JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') = 'you-search'
+      AND JSONExtractString(event, 'status') = 'started'
+    GROUP BY taskId, trialIndex, score, pass, gradable, asstCumVal
+  )
+  WHERE gradable
+  GROUP BY pass, taskId, trialIndex
+)
+GROUP BY result
+ORDER BY result ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─result─┬─trials─┬─avg_parallel_rounds─┬─avg_search_rounds─┬─pct_parallel─┬─avg_searches_per_round─┬─avg_max_searches_in_round─┐
+1. │ FAIL   │    994 │                3.97 │              6.78 │       0.5851 │                    1.9 │                      2.59 │
+2. │ PASS   │   1673 │                2.62 │              4.06 │        0.644 │                      2 │                      2.64 │
+   └────────┴────────┴─────────────────────┴───────────────────┴──────────────┴────────────────────────┴───────────────────────────┘
+```
+
+2b. Parallelism by search-round band
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS result,
+  multiIf(search_rounds = 1, '1 round', search_rounds = 2, '2 rounds', search_rounds = 3, '3 rounds', '4+ rounds') AS search_band,
+  count() AS trials,
+  round(avg(parallel_rounds), 2) AS avg_parallel_rounds,
+  round(sum(parallel_rounds) / greatest(sum(search_rounds), 1), 4) AS pct_parallel
+FROM (
+  SELECT
+    pass, taskId, trialIndex,
+    countIf(search_count >= 2) AS parallel_rounds,
+    count() AS search_rounds
+  FROM (
+    SELECT
+      JSONExtractString(json, 'taskId') AS taskId,
+  JSONExtractInt(json, 'trialIndex') AS trialIndex,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+      asstCumVal,
+      count() AS search_count
+    FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+    ARRAY JOIN events AS event, asstCum AS asstCumVal
+    WHERE asstCumVal > 0
+      AND JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') = 'you-search'
+      AND JSONExtractString(event, 'status') = 'started'
+    GROUP BY taskId, trialIndex, score, pass, gradable, asstCumVal
+  )
+  WHERE gradable
+  GROUP BY pass, taskId, trialIndex
+)
+GROUP BY result, search_band
+ORDER BY result ASC, search_band ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─result─┬─search_band─┬─trials─┬─avg_parallel_rounds─┬─pct_parallel─┐
+1. │ FAIL   │ 1 round     │    134 │                0.96 │       0.9627 │
+2. │ FAIL   │ 2 rounds    │    133 │                 1.5 │       0.7519 │
+3. │ FAIL   │ 3 rounds    │    110 │                2.05 │       0.6848 │
+4. │ FAIL   │ 4+ rounds   │    617 │                5.49 │       0.5638 │
+5. │ PASS   │ 1 round     │    363 │                0.93 │       0.9256 │
+6. │ PASS   │ 2 rounds    │    370 │                1.46 │       0.7297 │
+7. │ PASS   │ 3 rounds    │    263 │                   2 │       0.6667 │
+8. │ PASS   │ 4+ rounds   │    677 │                4.39 │       0.6065 │
+   └────────┴─────────────┴────────┴─────────────────────┴──────────────┘
+```
+
+3. First-round behavior
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS result,
+  count() AS trials,
+  round(avg(r1_searches), 2) AS avg_r1_searches,
+  round(avg(r1_reads), 2) AS avg_r1_reads,
+  round(countIf(r1_reads > 0) / count(), 4) AS pct_has_read_in_r1,
+  round(countIf(r1_searches = 1) / count(), 4) AS pct_single_search_r1,
+  round(countIf(r1_searches >= 3) / count(), 4) AS pct_many_searches_r1,
+  round(countIf(r1_searches <= 2 AND r1_reads > 0) / count(), 4) AS pct_focused_with_read_r1
+FROM (
+  SELECT
+    e.pass, e.taskId, e.trialIndex, e.gradable,
+    countIf(JSONExtractString(e.event, 'name') = 'you-search') AS r1_searches,
+    countIf(JSONExtractString(e.event, 'name') = 'you-contents') AS r1_reads
+  FROM (
+    SELECT
+      JSONExtractString(json, 'taskId') AS taskId,
+  JSONExtractInt(json, 'trialIndex') AS trialIndex,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+      asstCumVal,
+      event
+    FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+    ARRAY JOIN events AS event, asstCum AS asstCumVal
+    WHERE asstCumVal > 0
+      AND JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') IN ('you-search', 'you-contents')
+      AND JSONExtractString(event, 'status') = 'started'
+  ) e
+  INNER JOIN (
+    SELECT taskId, trialIndex, min(asstCumVal) AS firstSearchRound
+    FROM (
+      SELECT
+        JSONExtractString(json, 'taskId') AS taskId,
+        JSONExtractInt(json, 'trialIndex') AS trialIndex,
+        asstCumVal
+      FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+      ARRAY JOIN events AS event, asstCum AS asstCumVal
+      WHERE asstCumVal > 0
+        AND JSONExtractString(event, 'type') = 'tool_call'
+        AND JSONExtractString(event, 'name') = 'you-search'
+        AND JSONExtractString(event, 'status') = 'started'
+    )
+    GROUP BY taskId, trialIndex
+  ) fr ON e.taskId = fr.taskId AND e.trialIndex = fr.trialIndex AND e.asstCumVal = fr.firstSearchRound
+  WHERE e.gradable
+  GROUP BY e.pass, e.taskId, e.trialIndex, e.gradable
+)
+GROUP BY result
+ORDER BY result ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─result─┬─trials─┬─avg_r1_searches─┬─avg_r1_reads─┬─pct_has_read_in_r1─┬─pct_single_search_r1─┬─pct_many_searches_r1─┬─pct_focused_with_read_r1─┐
+1. │ FAIL   │    994 │            2.18 │         0.01 │              0.007 │               0.0483 │                 0.16 │                    0.006 │
+2. │ PASS   │   1673 │            2.14 │         0.01 │             0.0114 │               0.0795 │               0.1596 │                   0.0114 │
+   └────────┴────────┴─────────────────┴──────────────┴────────────────────┴──────────────────────┴──────────────────────┴──────────────────────────┘
+```
+
+4. Read depth by round (early vs late), trials with 3+ rounds only
+
+```sql
+SELECT
+  if(pass, 'PASS', 'FAIL') AS result,
+  multiIf(asstCumVal <= 2, 'Early (1-2)', 'Late (3+)') AS round_band,
+  count() AS read_calls,
+  count(DISTINCT taskId, trialIndex) AS trials,
+  round(avg(url_count), 2) AS avg_urls_per_read,
+  round(quantile(0.5)(url_count), 2) AS median_urls_per_read,
+  round(quantile(0.9)(url_count), 2) AS p90_urls_per_read,
+  round(countIf(url_count > 1) / count(), 4) AS pct_multi_url_read,
+  round(avgIf(url_count, url_count > 1), 2) AS avg_urls_when_multi
+FROM (
+  SELECT
+    pass, taskId, trialIndex, gradable,
+    asstCumVal,
+    length(JSONExtractArrayRaw(event, 'input', 'urls')) AS url_count
+  FROM (
+    SELECT JSONExtractString(json, 'taskId') AS taskId,
+  JSONExtractInt(json, 'trialIndex') AS trialIndex,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable, events, asstCum, maxAsstCum
+    FROM (SELECT json, events,
+    arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events)) AS asstCum,
+    arrayMax(arrayCumSum(arrayMap(e -> if(JSONExtractString(e, 'type') = 'message' AND JSONExtractString(e, 'role') = 'assistant', 1, 0), events))) AS maxAsstCum
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ))
+    WHERE maxAsstCum >= 3
+  )
+  ARRAY JOIN events AS event, asstCum AS asstCumVal
+  WHERE JSONExtractString(event, 'type') = 'tool_call'
+    AND JSONExtractString(event, 'name') = 'you-contents'
+    AND JSONExtractString(event, 'status') = 'started'
+)
+WHERE gradable
+GROUP BY result, round_band
+ORDER BY result ASC, round_band ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─result─┬─round_band──┬─read_calls─┬─trials─┬─avg_urls_per_read─┬─median_urls_per_read─┬─p90_urls_per_read─┬─pct_multi_url_read─┬─avg_urls_when_multi─┐
+1. │ FAIL   │ Early (1-2) │       1019 │    811 │              1.51 │                    1 │                 3 │             0.3425 │                 2.5 │
+2. │ FAIL   │ Late (3+)   │       5904 │    841 │              1.63 │                    1 │                 3 │             0.3642 │                2.74 │
+3. │ PASS   │ Early (1-2) │       1752 │   1370 │              1.57 │                    1 │                 3 │             0.3539 │                2.61 │
+4. │ PASS   │ Late (3+)   │       4900 │   1153 │              1.76 │                    1 │                 4 │             0.3953 │                2.92 │
+   └────────┴─────────────┴────────────┴────────┴───────────────────┴──────────────────────┴───────────────────┴────────────────────┴─────────────────────┘
+```
+
+## 6d. Synthesis: failure vs success — full-trajectory pattern analysis
+
+Synthesis across three quantitative analyses (6a–6c, each a separate ClickHouse query over graded.jsonl) that measure: round-by-round profiles and assistant reasoning depth; query evolution, read repetition, and final-answer quality; search-to-read coupling, parallelism, first-round behavior, and read depth.
+
+Each pattern below is a behavioral difference between PASS and FAIL gradable trials (K=3, 2667 trials with searches). Hypotheses and candidate solutions follow each pattern. The strongest structural signal is **trial length** — FAIL trials run 9.4–11.4 total rounds vs PASS's 5.3–7.1 — so many patterns are symptoms of persistent re-searching rather than independent failure modes.
+
+### 6a. Round-by-round profiles and reasoning depth
+
+See `analysis/round-profile.ts` for the full SQL and output.
+
+**Round-by-round evolution:**
+| Round | PASS searches | FAIL searches | PASS reads | FAIL reads | PASS pct_any_read | FAIL pct_any_read |
+|-------|--------------|--------------|-----------|-----------|-------------------|-------------------|
+| 1 | 2.12 | 2.16 | 0.02 | 0.02 | 2.0% | 1.6% |
+| 2 | 0.76 | 0.85 | 1.03 | 1.01 | 80.8% | 80.8% |
+| 3 | 1.24 | 1.24 | 0.50 | 0.60 | 43.1% | 51.9% |
+| 4 | 0.98 | 1.07 | 0.61 | 0.68 | 52.6% | 59.6% |
+| 5+ | 0.86 | 0.89 | 0.58 | 0.63 | 52.2% | 57.9% |
+
+**Assistant reasoning depth by round:**
+| Round | PASS avg_content_len | FAIL avg_content_len |
+|-------|---------------------|---------------------|
+| 1 | 138 | 138 |
+| 2 | 166 | 131 |
+| 3 | **643** | **413** |
+| 4 | **719** | **470** |
+| 5+ | **988** | **715** |
+
+**Termination patterns:**
+| | FAIL | PASS |
+|---|---|---|
+| avg_last_search_round | 9.43 | 5.28 |
+| pct_zero_total_reads | 1.6% | **6.5%** |
+| avg_reads_in_final_search_round | 0.32 | 0.27 |
+| avg_gap (last_search - last_read round) | -0.24 | -0.27 |
+
+**Pattern 1: Reasoning depth diverges at round 3.** PASS assistant messages grow richer after the initial search rounds (643→988 chars); FAIL messages stall at 413→715 — ~35% shorter from round 3 onward. Near-empty content (<50 chars) is negligible for both (<2%).
+
+- Hypothesis A: The model loses track of accumulated findings — context saturation leads to shallower deliberation. → Candidate solution: periodic summarization of findings in the skill.
+- Hypothesis B: FAIL happens first, and shallower reasoning is a *consequence*, not a cause — the model already suspects it can't answer and goes through the motions. → Harder to fix; possibly addressable with a "state what you know" checkpoint before each new search.
+- Hypothesis C: PASS trials gain confidence from early reads and invest more reasoning in synthesis; FAIL trials never gain that confidence. → Candidate solution: require a confidence assessment after the first read pass (skill instruction L4-aligned).
+
+**Pattern 2: Per-round tool intensity is nearly identical.** Both groups launch ~2 searches in round 1, ~0.8–1.2 in subsequent rounds, with ~50–80% of rounds having reads. FAIL does NOT escalate per-round search count. The volume difference is entirely from duration — FAIL runs 60% more rounds.
+
+- Hypothesis A: FAIL trials exhaust their best queries early and then repeat with diminishing returns. → Candidate solution: stop-early (L3) — two rounds of reading without new information is enough to answer.
+- Hypothesis B: The model can't find the answer because the task is intrinsically harder for this model/tool surface. → Not a lever; accept that some tasks are harder.
+
+**Pattern 3: Zero-read trials skew PASS (6.5% vs 1.6%).** These are likely easy single-fact questions answered from parametric knowledge. → Not a failure mode; consistent with direction 2a's finding that 0-read trials score 0.97 F1 on single-fact questions.
+
+### 6b. Query evolution, read repetition, and final-answer quality
+
+See `analysis/query-evolution.ts` for the full SQL and output.
+
+**Query evolution (3+ round trials):**
+| | FAIL | PASS |
+|---|---|---|
+| avg_first_query_len | 66.3 | 64.9 |
+| avg_last_query_len | 79.4 | 72.8 |
+| avg_len_change | **+13.1** | **+8.0** |
+| avg_round_span | **11.21** | **6.96** |
+| pct_last_longer | 24.8% | 18.6% |
+
+**Read repetition:**
+| | FAIL | PASS |
+|---|---|---|
+| avg_distinct_urls | 10.4 | 6.8 |
+| avg_total_reads | 11.4 | 7.2 |
+| avg_repetition_ratio | 1.098 | 1.048 |
+| pct_heavy_reread (ratio>1.5) | 3.7% | 2.1% |
+| heavy_reread in 1-2 reads band | **5.6%** | **1.3%** |
+
+**Final-answer quality:**
+| | FAIL | PASS |
+|---|---|---|
+| avg_char_length | **3044** | **2672** |
+| pct with Answer section | **32.1%** | **43.6%** |
+| pct with Evidence section | 0.3% | 0.2% |
+| pct with Sources section | 37.0% | 42.1% |
+| avg_citations | 4.1 | 4.3 |
+| pct_zero_citations | **15.9%** | **11.3%** |
+
+**Pattern 4: FAIL answers are longer but less structured.** FAIL final answers average 3044 chars vs 2672 for PASS — ~14% longer. Yet they're 26% less likely to include an Answer section header (32% vs 44%) and 41% more likely to have zero citations (16% vs 11%). The Evidence section is dead: used in <0.3% of all trials.
+
+- Hypothesis A: Verbosity substitutes for precision when the model is uncertain — it rambles instead of organizing. → Candidate solution: require Answer/Evidence/Sources structure (L5, already planned).
+- Hypothesis B: The model omits the Answer section because it never converged on a clear answer — it's a symptom of the finding failure, not a formatting oversight. → Candidate solution: "if you can't find a definitive answer, state your best estimate and confidence level" (skill instruction).
+- Hypothesis C: Long rambling answers may confuse the judge / make answer extraction harder, creating a self-reinforcing failure. → Candidate solution: enforce conciseness in the skill (e.g. "answer in ≤3 sentences" as a soft ceiling).
+
+**Pattern 5: FAIL trials expand queries instead of refining them.** FAIL queries grow +13.1 chars from first to last vs +8.0 for PASS. The model is ~33% more likely to produce a last query that's much longer than the first. Common-prefix overlap is near-zero for both — the model rewrites queries entirely each round, never incrementally refining.
+
+- Hypothesis A: The model treats each round as a fresh search problem rather than iteratively narrowing. → Candidate solution: "before searching, state what you already know and what specific gap the next query fills" (skill instruction to enforce incremental refinement).
+- Hypothesis B: Expanding queries adds noise (more terms → less relevant results) rather than precision. → Candidate solution: "use 3–6 focused keywords; if results are poor, narrow, don't expand" (counter-instruction against query bloat).
+
+**Pattern 6: Read repetition is weakly higher in FAIL, concentrated in low-read trials.** For the 1–2 reads band, FAIL = 5.6% heavy re-read vs PASS = 1.3% — a 4.3× gap. When FAIL trials read very little, they waste those few reads on the same unhelpful pages.
+
+- Hypothesis A: The model misses its best results on the first pass and has no mechanism for triage. → Candidate solution: "after your first search, identify the 1–2 most promising URLs based on snippets before reading" (skill instruction, connects to L4 read-gate).
+- Hypothesis B: The model anchors on the first domain and re-searches within it without noticing it's not yielding the answer. → Candidate solution: "if you've read two pages from the same domain and haven't found the answer, switch domains" (skill instruction).
+
+### 6c. Search-to-read coupling, parallelism, and first-round behavior
+
+See `analysis/search-read-coupling.ts` for the full SQL and output.
+
+**Coupling (search + read in same round):**
+| | FAIL | PASS |
+|---|---|---|
+| avg_coupled_rounds | 2.63 | 1.33 |
+| avg_blind_rounds | 4.14 | 2.71 |
+| pct_coupled | **38.8%** | **32.9%** |
+| pct_blind | 61.2% | 67.1% |
+
+**Parallelism:**
+| | FAIL | PASS |
+|---|---|---|
+| pct_parallel (overall) | 51.5% | 49.7% |
+| pct_parallel (1-round trials) | 83.6% | **92.6%** |
+| avg_searches_per_round | 2.07 | 2.12 |
+
+**First-round behavior:**
+| | FAIL | PASS |
+|---|---|---|
+| avg_r1_searches | 2.18 | 2.14 |
+| pct_single_search_r1 | 4.8% | **8.0%** |
+| pct_has_read_in_r1 | 0.7% | 1.1% |
+
+**Read depth by round (trials with 3+ rounds):**
+| | Early (1–2) | Late (3+) |
+|---|---|---|
+| FAIL avg_urls_per_read | 1.51 | 1.63 |
+| PASS avg_urls_per_read | 1.57 | **1.76** |
+| FAIL pct_multi_url_read | 34.3% | 36.4% |
+| PASS pct_multi_url_read | 35.4% | **39.5%** |
+
+**Pattern 7: Search-to-read coupling is slightly HIGHER in FAIL, not lower.** FAIL couples 38.8% of search rounds vs PASS's 32.9%. The original hypothesis ("FAIL trials search without reading") is directly contradicted. FAIL trials do everything — search, read, couple — more, not differently.
+
+- Hypothesis A: Coupling per se doesn't help — it's what the model does with the read that matters. → Not a lever on coupling; focus on reading effectiveness instead.
+- Hypothesis B: Coupling rate is higher in FAIL because FAIL trials go deeper and coupling increases with depth (from 0% at round 1 to ~40% at 4+ rounds). The correlation is confounded by trial length. → No lever.
+
+**Pattern 8: PASS is more parallel for short trials.** In 1-round trials, PASS = 92.6% parallel vs FAIL = 83.6% — PASS fires multiple parallel searches to saturate the first round before reading. In multi-round trials the gap narrows to ~4pp.
+
+- Hypothesis A: Broad first-round exploration reduces the need for later rounds. → Candidate solution: skill instruction to use parallel searches in round 1 (possibly already natural behavior — the model does this ~85%+ of the time already).
+- Hypothesis B: The model already saturates parallelism (avg 2.1 searches/round, close to the tool-call parallelism ceiling). → Not a lever.
+
+**Pattern 9: PASS reads MORE URLs per call in later rounds.** PASS reads 1.76 URLs per contents call in late rounds vs FAIL's 1.63. The hypothesis that FAIL "grabs at straws" (more URLs per read) is refuted — FAIL reads MORE FREQUENTLY (7.0 reads/trial in late rounds vs 4.3) but with FEWER URLs per call. More granular, scattered reading rather than concentrated.
+
+- Hypothesis A: FAIL reads many pages shallowly (1 URL at a time) without integrating findings across reads. → Candidate solution: "after reading 2–3 pages, pause and synthesize before reading more" (skill instruction, complements L4 read-gate).
+- Hypothesis B: Granular reading is fine; the problem is reading the wrong pages, not too many. → Candidate solution: better result triage (see Pattern 6-A).
+
+### Summary of candidate solutions by priority
+
+Solutions that are already covered by program.md levers are marked. New candidates (not in the current program) are numbered for discussion.
+
+| Priority | Pattern | Solution | Program lever |
+|----------|---------|----------|---------------|
+| High | 1 — Reasoning shallows at r3+ | Summarize findings periodically; confidence checkpoint after first read pass | L3 (stop-early), L4 (read-before-answer) |
+| High | 4 — Long, unstructured fail answers | Require Answer/Evidence/Sources; "state your best estimate" when unsure | L5 (required sections) |
+| High | 5 — Query expansion, not refinement | "State what you know and what gap the next query fills before each search" | New: incremental-refinement skill instruction |
+| Medium | 2 — FAIL runs 60% more rounds | Stop early (L3); two rounds without new information → answer | L3 |
+| Medium | 6 — Re-reading in low-read trials | Identify 1–2 most promising URLs before reading; switch domains if stuck | L4 (read-gate), New: domain-switch instruction |
+| Medium | 3/8 — Zero-reads skew PASS, first-round parallels | Not a failure mode; already optimized behavior | — |
+| Low | 9 — Granular reading in FAIL | "Pause and synthesize after 2–3 reads" | Complements L4 |
+| Low | 7 — Coupling not differentiating | No lever — coupling is a confound of trial length | — |
+
+### Caveats
+
+- All patterns are **observational** across a single model (minimax-m3) × harness (Pi) × tool surface (You.com MCP). The "hypotheses" are untested and some may not transfer to other models.
+- The trial-length confound is pervasive: FAIL trials are longer, so any per-trial aggregate (total reads, total searches, total couplings) is inflated for FAIL. Per-round normalization is used where possible, but residual confounding remains — longer trials may reflect intrinsically harder tasks.
+- These patterns inform the auto-research `.auto/program.md` levers and seed ideas, but the final word is the 5-minute sample hill-climb and the full-eval validation gate, not observational correlations.

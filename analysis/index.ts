@@ -1,10 +1,14 @@
 import { run as citationFidelity } from './citation-fidelity.ts'
+import { run as failurePatterns } from './failure-patterns.ts'
 import { run as paramCompliance } from './param-compliance.ts'
+import { run as queryEvolution } from './query-evolution.ts'
 import { run as readDifficulty } from './read-difficulty.ts'
 import { run as readDiscipline } from './read-discipline.ts'
+import { run as roundProfile } from './round-profile.ts'
 import { run as searchCountDetail } from './search-count-detail.ts'
 import { run as searchCountRound } from './search-count-round.ts'
 import { run as searchParams } from './search-params.ts'
+import { run as searchReadCoupling } from './search-read-coupling.ts'
 import { run as sourceDiversity } from './source-diversity.ts'
 import { run as toolBudget } from './tool-budget.ts'
 
@@ -26,6 +30,10 @@ const directions = [
   searchParams,
   citationFidelity,
   sourceDiversity,
+  roundProfile,
+  queryEvolution,
+  searchReadCoupling,
+  failurePatterns,
 ]
 
 process.stdout.write(HEADER)
