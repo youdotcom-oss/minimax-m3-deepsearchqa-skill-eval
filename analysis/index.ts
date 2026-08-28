@@ -1,4 +1,5 @@
 import { run as citationFidelity } from './citation-fidelity.ts'
+import { run as contentsTruncationContext } from './contents-truncation-context.ts'
 import { run as failurePatterns } from './failure-patterns.ts'
 import { run as paramCompliance } from './param-compliance.ts'
 import { run as queryEvolution } from './query-evolution.ts'
@@ -28,6 +29,7 @@ const directions = [
   searchCountDetail,
   searchCountRound,
   searchParams,
+  contentsTruncationContext,
   citationFidelity,
   sourceDiversity,
   roundProfile,
