@@ -522,10 +522,89 @@ Finding: the 270 truncation-like instances are a risk signal, not proof of trans
 
 Outcome impact: trials with any truncation-like marker performed worse, but they also had more completed contents calls and much larger maximum payloads. That means the observed drop is confounded by page size, task difficulty, and over-reading. The data does not support saying that the 270 marker hits directly caused failures. The stronger interpretation is that very large/noisy you-contents payloads correlate with worse outcomes, and explicit truncation-like text is one symptom of that high-risk cohort.
 
+Query 1 - payload size and explicit marker summary:
+
+```sql
+SELECT
+  count() AS completed_contents_calls,
+  countIf(has_truncation_like_marker) AS calls_with_truncation_like_marker,
+  round(countIf(has_truncation_like_marker) / count(), 4) AS marker_share,
+  round(avg(model_text_chars), 0) AS avg_model_text_chars,
+  quantileExact(0.5)(model_text_chars) AS p50_model_text_chars,
+  quantileExact(0.9)(model_text_chars) AS p90_model_text_chars,
+  quantileExact(0.99)(model_text_chars) AS p99_model_text_chars,
+  max(model_text_chars) AS max_model_text_chars,
+  countIf(model_text_chars >= 100000) AS calls_ge_100k_chars,
+  countIf(model_text_chars >= 500000) AS calls_ge_500k_chars,
+  countIf(model_text_chars >= 1000000) AS calls_ge_1m_chars
+FROM (
+  SELECT
+    length(JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text')) AS model_text_chars,
+    multiSearchAnyCaseInsensitive(
+      JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text'),
+      ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']
+    ) AS has_truncation_like_marker
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
+  WHERE JSONExtractString(event, 'type') = 'tool_call'
+    AND JSONExtractString(event, 'name') = 'you-contents'
+    AND JSONExtractString(event, 'status') = 'completed'
+)
+FORMAT PrettyCompact
+```
+
 ```text
    ┌─completed_contents_calls─┬─calls_with_truncation_like_marker─┬─marker_share─┬─avg_model_text_chars─┬─p50_model_text_chars─┬─p90_model_text_chars─┬─p99_model_text_chars─┬─max_model_text_chars─┬─calls_ge_100k_chars─┬─calls_ge_500k_chars─┬─calls_ge_1m_chars─┐
 1. │                    13393 │                               270 │       0.0202 │               172923 │                12364 │               229914 │              2590438 │             47901839 │                2463 │                 728 │               358 │
    └──────────────────────────┴───────────────────────────────────┴──────────────┴──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┴─────────────────────┴─────────────────────┴───────────────────┘
+```
+
+Query 2 - trial outcomes for the 270 truncation-like marker calls:
+
+```sql
+SELECT
+  cohort,
+  count() AS trials,
+  sum(completed_contents_calls) AS total_completed_contents_calls,
+  sum(marker_calls) AS total_marker_calls,
+  round(avg(score), 4) AS avg_score,
+  round(countIf(pass) / count(), 4) AS pass_rate,
+  round(avg(completed_contents_calls), 2) AS avg_completed_contents_calls,
+  round(avg(max_model_text_chars), 0) AS avg_max_model_text_chars,
+  quantileExact(0.5)(max_model_text_chars) AS p50_max_model_text_chars,
+  quantileExact(0.9)(max_model_text_chars) AS p90_max_model_text_chars
+FROM (
+  SELECT
+    if(marker_calls > 0, 'any truncation-like marker', 'no truncation-like marker') AS cohort,
+    task_id,
+    trial_index,
+    any(score) AS score,
+    any(pass) AS pass,
+    count() AS completed_contents_calls,
+    countIf(has_truncation_like_marker) AS marker_calls,
+    max(model_text_chars) AS max_model_text_chars
+  FROM (
+    SELECT
+      JSONExtractString(json, 'taskId') AS task_id,
+      JSONExtractInt(json, 'trialIndex') AS trial_index,
+      JSONExtractFloat(json, 'score') AS score,
+      JSONExtractBool(json, 'pass') AS pass,
+      length(JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text')) AS model_text_chars,
+      multiSearchAnyCaseInsensitive(
+        JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text'),
+        ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']
+      ) AS has_truncation_like_marker
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+    ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
+    WHERE JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'name') = 'you-contents'
+      AND JSONExtractString(event, 'status') = 'completed'
+  )
+  GROUP BY task_id, trial_index
+)
+GROUP BY cohort
+ORDER BY cohort ASC
+FORMAT PrettyCompact
 ```
 
 ```text
