@@ -65,7 +65,7 @@ FROM (
     multiSearchAnyCaseInsensitive(model_text, ${truncationMarkers}) AS has_truncation_like_marker
   FROM (${completedContentsRows})
 )
-FORMAT PrettyCompact`.trim()
+FORMAT Vertical`.trim()
 
 const sql2 = `
 WITH top_calls AS (
@@ -155,7 +155,7 @@ FROM (
   )
 )
 ORDER BY has_truncation_like_marker DESC, model_text_chars DESC, task_id ASC, trial_index ASC, event_position ASC
-FORMAT PrettyCompact`.trim()
+FORMAT Vertical`.trim()
 
 const sql3 = `
 SELECT
@@ -193,7 +193,7 @@ FROM (
 )
 GROUP BY cohort
 ORDER BY cohort ASC
-FORMAT PrettyCompact`.trim()
+FORMAT Vertical`.trim()
 
 function block(label: string, sql: string, out: string): string {
   const fence = '```'
