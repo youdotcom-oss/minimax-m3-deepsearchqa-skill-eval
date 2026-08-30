@@ -9,6 +9,7 @@ import { run as roundProfile } from './round-profile.ts'
 import { run as searchCountDetail } from './search-count-detail.ts'
 import { run as searchCountRound } from './search-count-round.ts'
 import { run as searchParams } from './search-params.ts'
+import { run as searchQueryCompliance } from './search-query-compliance.ts'
 import { run as searchReadCoupling } from './search-read-coupling.ts'
 import { run as sourceDiversity } from './source-diversity.ts'
 import { run as toolBudget } from './tool-budget.ts'
@@ -29,6 +30,7 @@ const directions = [
   searchCountDetail,
   searchCountRound,
   searchParams,
+  searchQueryCompliance,
   contentsTruncationContext,
   citationFidelity,
   sourceDiversity,

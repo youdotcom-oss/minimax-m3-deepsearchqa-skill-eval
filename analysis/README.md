@@ -514,7 +514,425 @@ FORMAT PrettyCompact
     └─────────────────┴──────────┴────────┴───────────┴───────────┴────────────┘
 ```
 
-## 3d. you-contents truncation and assistant context
+## 3d. you-search query string rule compliance
+
+The skill asks for concise keyword queries of 3-6 words and only a narrow operator set: exact phrases, `intitle:term`, `inbody:term`, `-term`, `+term`, and uppercase `AND`/`OR` without mixing. Domain, language, country, and recency filtering should use separate tool parameters, so `site:`, `lang:`, `loc:`, `filetype:`, `ext:`, `inpage:`, and `NOT` are operator violations. These queries keep word-count violations and operator violations separate, then compare their combined trial-level cohorts.
+
+Finding: word-count violations are nearly universal among search-heavy runs, so they are tracked but are not the main signal here. The most significant operator-specific result is disallowed filter/operator syntax: `site:`, `lang:`, `loc:`, `filetype:`, `ext:`, `inpage:`, or uppercase `NOT` appeared in 1,245 calls across 675 trials, with a call-weighted pass rate of 0.4169. At the trial level, word-count-only trials passed at 0.6907, while trials with both word-count and operator violations passed at 0.4728. The operator-only cohort has just 2 trials, so it is useful as a sanity check but too small for a stable conclusion. Operator checks ignore quoted exact phrases, because exact phrases are allowed. The failed examples show concrete operator-rule breaks such as `site:` in the query string and lowercase boolean tokens; no mixed uppercase `AND`/`OR` cases appeared.
+
+Implication: an auto-research extension can handle this deterministically instead of only rejecting the call. For example, parse `site:example.com` out of `query`, move it into `include_domains`, remove the operator from the keyword query, execute the reshaped tool call, and include the normalized call alongside the result returned to the model. That gives the model immediate in-context feedback about the valid tool shape while preserving forward progress.
+
+Query 1 - violation types across started you-search calls:
+
+```sql
+SELECT
+  violation_type,
+  count() AS violating_calls,
+  uniqExact(concat(task_id, '#', toString(trial_index))) AS affected_trials,
+  round(avg(score), 4) AS avg_trial_score,
+  round(countIf(pass) / count(), 4) AS call_weighted_pass_rate,
+  round(avg(word_count), 2) AS avg_query_words
+FROM (
+  SELECT
+    task_id,
+    trial_index,
+    score,
+    pass,
+    word_count,
+    arrayJoin(
+      arrayFilter(
+        x -> tupleElement(x, 2),
+        [
+          tuple('word count outside 3-6', violates_word_count),
+          tuple('disallowed operator', uses_disallowed_operator),
+          tuple('lowercase boolean', uses_lowercase_boolean),
+          tuple('mixed AND/OR', mixes_and_or),
+          tuple('unsupported colon operator', uses_unsupported_colon_operator)
+        ]
+      )
+    ) AS violation,
+    tupleElement(violation, 1) AS violation_type
+  FROM (SELECT
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+  JSONExtractString(event, 'input', 'query') AS query,
+  replaceRegexpAll(query, '"[^"]*"', ' ') AS operator_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', query))) AS word_count,
+  word_count < 3 OR word_count > 6 AS violates_word_count,
+  match(operator_query, '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(operator_query, '(^|\\s)NOT(\\s|$)') AS uses_disallowed_operator,
+  match(operator_query, '(^|\\s)(and|or)(\\s|$)') AS uses_lowercase_boolean,
+  match(operator_query, '(^|\\s)AND(\\s|$)') AND match(operator_query, '(^|\\s)OR(\\s|$)') AS mixes_and_or,
+  arrayFilter(
+    op -> NOT has(['intitle', 'inbody', 'site', 'lang', 'loc', 'filetype', 'ext', 'inpage'], lower(op)),
+    extractAll(operator_query, '(?i)\\b([a-z][a-z0-9_-]*):')
+  ) AS unsupported_colon_ops,
+  length(unsupported_colon_ops) > 0 AS uses_unsupported_colon_operator,
+  uses_disallowed_operator
+    OR uses_lowercase_boolean
+    OR mixes_and_or
+    OR uses_unsupported_colon_operator AS has_operator_violation,
+  violates_word_count
+    OR has_operator_violation AS violates_query_rule
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') = 'started')
+  WHERE gradable AND violates_query_rule
+)
+GROUP BY violation_type
+ORDER BY violating_calls DESC, violation_type ASC
+FORMAT Vertical
+```
+
+```text
+Row 1:
+──────
+violation_type:          word count outside 3-6
+violating_calls:         22977
+affected_trials:         2651
+avg_trial_score:         0.6633
+call_weighted_pass_rate: 0.5177
+avg_query_words:         10.88
+
+Row 2:
+──────
+violation_type:          disallowed operator
+violating_calls:         1245
+affected_trials:         675
+avg_trial_score:         0.5883
+call_weighted_pass_rate: 0.4169
+avg_query_words:         10.69
+
+Row 3:
+──────
+violation_type:          lowercase boolean
+violating_calls:         112
+affected_trials:         103
+avg_trial_score:         0.7734
+call_weighted_pass_rate: 0.6429
+avg_query_words:         11.54
+
+Row 4:
+──────
+violation_type:          unsupported colon operator
+violating_calls:         13
+affected_trials:         9
+avg_trial_score:         0.5097
+call_weighted_pass_rate: 0.3846
+avg_query_words:         13.69
+```
+
+
+Query 2 - trial outcomes by word-count and operator violations:
+
+```sql
+SELECT
+  cohort,
+  count() AS trials,
+  sum(search_calls) AS total_search_calls,
+  sum(word_count_violating_calls) AS total_word_count_violating_calls,
+  sum(operator_violating_calls) AS total_operator_violating_calls,
+  round(avg(score), 4) AS avg_score,
+  round(countIf(pass) / count(), 4) AS pass_rate,
+  round(avg(search_calls), 2) AS avg_search_calls,
+  round(avg(word_count_violating_calls), 2) AS avg_word_count_violating_calls,
+  round(avg(operator_violating_calls), 2) AS avg_operator_violating_calls,
+  round(avg(max_word_count), 2) AS avg_max_query_words
+FROM (
+  SELECT
+    multiIf(
+      has_any_word_count_violation AND has_any_operator_violation, 'word-count + operator',
+      has_any_operator_violation, 'operator only',
+      has_any_word_count_violation, 'word-count only',
+      'no violation'
+    ) AS cohort,
+    task_id,
+    trial_index,
+    any(score) AS score,
+    any(pass) AS pass,
+    count() AS search_calls,
+    countIf(violates_word_count) AS word_count_violating_calls,
+    countIf(has_operator_violation) AS operator_violating_calls,
+    max(violates_word_count) AS has_any_word_count_violation,
+    max(has_operator_violation) AS has_any_operator_violation,
+    max(word_count) AS max_word_count
+  FROM (SELECT
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+  JSONExtractString(event, 'input', 'query') AS query,
+  replaceRegexpAll(query, '"[^"]*"', ' ') AS operator_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', query))) AS word_count,
+  word_count < 3 OR word_count > 6 AS violates_word_count,
+  match(operator_query, '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(operator_query, '(^|\\s)NOT(\\s|$)') AS uses_disallowed_operator,
+  match(operator_query, '(^|\\s)(and|or)(\\s|$)') AS uses_lowercase_boolean,
+  match(operator_query, '(^|\\s)AND(\\s|$)') AND match(operator_query, '(^|\\s)OR(\\s|$)') AS mixes_and_or,
+  arrayFilter(
+    op -> NOT has(['intitle', 'inbody', 'site', 'lang', 'loc', 'filetype', 'ext', 'inpage'], lower(op)),
+    extractAll(operator_query, '(?i)\\b([a-z][a-z0-9_-]*):')
+  ) AS unsupported_colon_ops,
+  length(unsupported_colon_ops) > 0 AS uses_unsupported_colon_operator,
+  uses_disallowed_operator
+    OR uses_lowercase_boolean
+    OR mixes_and_or
+    OR uses_unsupported_colon_operator AS has_operator_violation,
+  violates_word_count
+    OR has_operator_violation AS violates_query_rule
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') = 'started')
+  WHERE gradable
+  GROUP BY task_id, trial_index
+)
+GROUP BY cohort
+ORDER BY cohort ASC
+FORMAT Vertical
+```
+
+```text
+Row 1:
+──────
+cohort:                           no violation
+trials:                           14
+total_search_calls:               40
+total_word_count_violating_calls: 0
+total_operator_violating_calls:   0
+avg_score:                        0.6173
+pass_rate:                        0.3571
+avg_search_calls:                 2.86
+avg_word_count_violating_calls:   0
+avg_operator_violating_calls:     0
+avg_max_query_words:              5.36
+
+Row 2:
+──────
+cohort:                           operator only
+trials:                           2
+total_search_calls:               8
+total_word_count_violating_calls: 0
+total_operator_violating_calls:   3
+avg_score:                        0.5455
+pass_rate:                        0.5
+avg_search_calls:                 4
+avg_word_count_violating_calls:   0
+avg_operator_violating_calls:     1.5
+avg_max_query_words:              6
+
+Row 3:
+──────
+cohort:                           word-count + operator
+trials:                           753
+total_search_calls:               10273
+total_word_count_violating_calls: 9773
+total_operator_violating_calls:   1365
+avg_score:                        0.6365
+pass_rate:                        0.4728
+avg_search_calls:                 13.64
+avg_word_count_violating_calls:   12.98
+avg_operator_violating_calls:     1.81
+avg_max_query_words:              15.11
+
+Row 4:
+──────
+cohort:                           word-count only
+trials:                           1898
+total_search_calls:               14507
+total_word_count_violating_calls: 13204
+total_operator_violating_calls:   0
+avg_score:                        0.7918
+pass_rate:                        0.6907
+avg_search_calls:                 7.64
+avg_word_count_violating_calls:   6.96
+avg_operator_violating_calls:     0
+avg_max_query_words:              12.66
+```
+
+
+Query 3 - failed eval examples with violating query input:
+
+```sql
+SELECT
+  task_id,
+  trial_index,
+  round(score, 4) AS score,
+  word_count,
+  violates_word_count,
+  has_operator_violation,
+  arrayStringConcat(
+    arrayFilter(
+      x -> x != '',
+      [
+        if(violates_word_count, 'word_count', ''),
+        if(uses_disallowed_operator, 'disallowed_operator', ''),
+        if(uses_lowercase_boolean, 'lowercase_boolean', ''),
+        if(mixes_and_or, 'mixed_AND_OR', ''),
+        if(uses_unsupported_colon_operator, concat('unsupported_colon:', arrayStringConcat(unsupported_colon_ops, ',')), '')
+      ]
+    ),
+    ', '
+  ) AS violation_reasons,
+  query
+FROM (SELECT
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+  JSONExtractString(event, 'input', 'query') AS query,
+  replaceRegexpAll(query, '"[^"]*"', ' ') AS operator_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', query))) AS word_count,
+  word_count < 3 OR word_count > 6 AS violates_word_count,
+  match(operator_query, '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(operator_query, '(^|\\s)NOT(\\s|$)') AS uses_disallowed_operator,
+  match(operator_query, '(^|\\s)(and|or)(\\s|$)') AS uses_lowercase_boolean,
+  match(operator_query, '(^|\\s)AND(\\s|$)') AND match(operator_query, '(^|\\s)OR(\\s|$)') AS mixes_and_or,
+  arrayFilter(
+    op -> NOT has(['intitle', 'inbody', 'site', 'lang', 'loc', 'filetype', 'ext', 'inpage'], lower(op)),
+    extractAll(operator_query, '(?i)\\b([a-z][a-z0-9_-]*):')
+  ) AS unsupported_colon_ops,
+  length(unsupported_colon_ops) > 0 AS uses_unsupported_colon_operator,
+  uses_disallowed_operator
+    OR uses_lowercase_boolean
+    OR mixes_and_or
+    OR uses_unsupported_colon_operator AS has_operator_violation,
+  violates_word_count
+    OR has_operator_violation AS violates_query_rule
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') = 'started')
+WHERE gradable
+  AND NOT pass
+  AND violates_query_rule
+ORDER BY has_operator_violation DESC, score ASC, word_count DESC, task_id ASC, trial_index ASC
+LIMIT 10
+FORMAT Vertical
+```
+
+```text
+Row 1:
+──────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             21
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  site:data.un.org/en/iso/GB.html "CPI: Consumer Price Index(2010=100)" "Agricultural production index(2014-2016=100)" "2020"
+
+Row 2:
+──────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             21
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  site:data.un.org/en/iso/au.html "CPI: Consumer Price Index(2010=100)" "Agricultural production index(2014-2016=100)" "2020"
+
+Row 3:
+──────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             21
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  site:data.un.org/en/iso/nz.html "CPI: Consumer Price Index(2010=100)" "Agricultural production index(2014-2016=100)" "2020"
+
+Row 4:
+──────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             21
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  site:data.un.org/en/iso/ca.html "CPI: Consumer Price Index(2010=100)" "Agricultural production index(2014-2016=100)" "2020"
+
+Row 5:
+──────
+task_id:                deepsearchqa-629
+trial_index:            1
+score:                  0
+word_count:             18
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  "University of Oxford" "research" "99" OR "100" "99.1" OR "98.5" THE rankings 2021 site:timeshighereducation.com
+
+Row 6:
+──────
+task_id:                deepsearchqa-155
+trial_index:            0
+score:                  0
+word_count:             16
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  "Census" "ex-smoker" "regional council" "Asian" 2018 2023 site:figure.nz OR site:stats.govt.nz
+
+Row 7:
+──────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             16
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, unsupported_colon:https
+query:                  https://data.un.org/en/iso/ca.html "CPI: Consumer Price Index" "Agricultural production index" 2020
+
+Row 8:
+──────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             16
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, unsupported_colon:https
+query:                  https://data.un.org/en/iso/GB.html "CPI: Consumer Price Index" "Agricultural production index" 2020
+
+Row 9:
+───────
+task_id:                deepsearchqa-471
+trial_index:            1
+score:                  0
+word_count:             16
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  site:data.un.org "Consumer price index (2010 = 100)" 2020 Canada Australia New Zealand United Kingdom
+
+Row 10:
+───────
+task_id:                deepsearchqa-558
+trial_index:            2
+score:                  0
+word_count:             16
+violates_word_count:    1
+has_operator_violation: 1
+violation_reasons:      word_count, disallowed_operator
+query:                  "AverageFare" BTS 2020 Q1 airport LAX "Los Angeles" $340 site:kaggle.com OR site:github.com
+```
+
+## 3e. you-contents truncation and assistant context
 
 When you-contents was called, did the model receive truncated or unusually large content, and did those truncation-like cases affect outcomes? The trajectory stores completed you-contents output in `output.content[0].text`; Pi turns that into the following tool-result message content, so this is the best local proxy for what reached the next model call.
 

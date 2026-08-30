@@ -207,7 +207,7 @@ export async function run(): Promise<string> {
   const out3 = await runSql(sql3)
 
   return [
-    '## 3d. you-contents truncation and assistant context',
+    '## 3e. you-contents truncation and assistant context',
     '',
     'When you-contents was called, did the model receive truncated or unusually large content, and what did the assistant say immediately before and after? Query 1 summarizes model-facing payload sizes and explicit truncation-like markers. Query 2 lists the top candidate calls with requested URLs, returned markdown lengths, model-facing payload head/tail, and adjacent assistant messages.',
     '',
