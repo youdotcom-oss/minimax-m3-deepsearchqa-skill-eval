@@ -932,13 +932,277 @@ violation_reasons:      word_count, disallowed_operator
 query:                  "AverageFare" BTS 2020 Q1 airport LAX "Los Angeles" $340 site:kaggle.com OR site:github.com
 ```
 
+## 3d.1. Search boolean operators: uppercase compliance and lowercase effect
+
+This isolates standalone `AND`/`OR` tokens outside quoted phrases. Uppercase use is correct only when the query does not mix `AND` and `OR`; lowercase use is a rule violation. Search outcome is measured by the number of `results.web` entries returned and by a paired comparison between lowercase and non-lowercase searches within the same trial. Trial score and pass rate are contextual, not causal evidence.
+
+Query 1 — uppercase AND/OR usage across started you-search calls:
+
+```sql
+SELECT
+  boolean_cohort,
+  count() AS calls,
+  round(count() / sum(count()) OVER (), 4) AS call_share,
+  uniqExact(concat(task_id, '#', toString(trial_index))) AS trials,
+  round(avg(word_count), 2) AS avg_query_words,
+  round(avg(result_count), 2) AS avg_returned_results,
+  round(countIf(result_count = 0) / count(), 4) AS zero_result_share,
+  round(avg(score), 4) AS avg_trial_score,
+  round(countIf(pass) / count(), 4) AS call_weighted_pass_rate
+FROM (WITH
+  JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory,
+  arrayFilter(
+    event -> JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'status') = 'started'
+      AND JSONExtractString(event, 'name') = 'you-search',
+    trajectory
+  ) AS started_events,
+  arrayFilter(
+    event -> JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'status') = 'completed'
+      AND JSONExtractString(event, 'name') = 'you-search',
+    trajectory
+  ) AS completed_events
+SELECT
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+  JSONExtractString(tupleElement(paired_event, 1), 'input', 'query') AS query,
+  replaceRegexpAll(query, '"[^"]*"', ' ') AS operator_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', query))) AS word_count,
+  match(operator_query, '(^|\\s)AND(\\s|$)') AS uses_upper_and,
+  match(operator_query, '(^|\\s)OR(\\s|$)') AS uses_upper_or,
+  match(operator_query, '(^|\\s)and(\\s|$)') AS uses_lower_and,
+  match(operator_query, '(^|\\s)or(\\s|$)') AS uses_lower_or,
+  multiIf(
+    uses_upper_and AND uses_upper_or, 'mixed uppercase AND/OR',
+    (uses_upper_and OR uses_upper_or) AND (uses_lower_and OR uses_lower_or), 'mixed case',
+    uses_upper_and, 'uppercase AND',
+    uses_upper_or, 'uppercase OR',
+    uses_lower_and AND uses_lower_or, 'lowercase AND and OR',
+    uses_lower_and, 'lowercase AND',
+    uses_lower_or, 'lowercase OR',
+    'no boolean operator'
+  ) AS boolean_cohort,
+  uses_upper_and OR uses_upper_or AS uses_upper_boolean,
+  uses_lower_and OR uses_lower_or AS uses_lower_boolean,
+  arrayFilter(
+    token -> token != '',
+    [
+      if(uses_lower_and, 'lowercase AND', NULL),
+      if(uses_lower_or, 'lowercase OR', NULL)
+    ]
+  ) AS lowercase_tokens,
+  JSONExtractArrayRaw(tupleElement(paired_event, 2), 'output', 'content') AS output_content,
+  JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', output_content)[1], 'text') AS response_text,
+  length(JSONExtractArrayRaw(response_text, 'results', 'web')) AS result_count
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+ARRAY JOIN arrayZip(started_events, completed_events) AS paired_event
+WHERE length(started_events) = length(completed_events))
+WHERE gradable
+GROUP BY boolean_cohort
+ORDER BY calls DESC, boolean_cohort ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─boolean_cohort──────┬─calls─┬─call_share─┬─trials─┬─avg_query_words─┬─avg_returned_results─┬─zero_result_share─┬─avg_trial_score─┬─call_weighted_pass_rate─┐
+1. │ no boolean operator │ 22783 │     0.9283 │   2650 │           10.21 │                 8.06 │            0.0035 │          0.6799 │                  0.5411 │
+2. │ uppercase OR        │  1649 │     0.0672 │    547 │           14.61 │                 7.16 │            0.0018 │          0.5589 │                   0.393 │
+3. │ lowercase AND       │    84 │     0.0034 │     78 │           11.54 │                 8.99 │                 0 │           0.793 │                  0.6786 │
+4. │ lowercase OR        │    25 │      0.001 │     24 │           11.72 │                 9.04 │                 0 │          0.7277 │                     0.6 │
+5. │ mixed case          │     1 │          0 │      1 │              15 │                   10 │                 0 │               0 │                       0 │
+   └─────────────────────┴───────┴────────────┴────────┴─────────────────┴──────────────────────┴───────────────────┴─────────────────┴─────────────────────────┘
+
+```
+
+Query 2 — lowercase boolean tokens in lowercase-only searches:
+
+```sql
+SELECT
+  lowercase_token,
+  count() AS calls,
+  uniqExact(concat(task_id, '#', toString(trial_index))) AS trials,
+  round(avg(word_count), 2) AS avg_query_words,
+  round(avg(result_count), 2) AS avg_returned_results,
+  round(countIf(result_count = 0) / count(), 4) AS zero_result_share,
+  round(avg(score), 4) AS avg_trial_score,
+  round(countIf(pass) / count(), 4) AS call_weighted_pass_rate
+FROM (WITH
+  JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory,
+  arrayFilter(
+    event -> JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'status') = 'started'
+      AND JSONExtractString(event, 'name') = 'you-search',
+    trajectory
+  ) AS started_events,
+  arrayFilter(
+    event -> JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'status') = 'completed'
+      AND JSONExtractString(event, 'name') = 'you-search',
+    trajectory
+  ) AS completed_events
+SELECT
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+  JSONExtractString(tupleElement(paired_event, 1), 'input', 'query') AS query,
+  replaceRegexpAll(query, '"[^"]*"', ' ') AS operator_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', query))) AS word_count,
+  match(operator_query, '(^|\\s)AND(\\s|$)') AS uses_upper_and,
+  match(operator_query, '(^|\\s)OR(\\s|$)') AS uses_upper_or,
+  match(operator_query, '(^|\\s)and(\\s|$)') AS uses_lower_and,
+  match(operator_query, '(^|\\s)or(\\s|$)') AS uses_lower_or,
+  multiIf(
+    uses_upper_and AND uses_upper_or, 'mixed uppercase AND/OR',
+    (uses_upper_and OR uses_upper_or) AND (uses_lower_and OR uses_lower_or), 'mixed case',
+    uses_upper_and, 'uppercase AND',
+    uses_upper_or, 'uppercase OR',
+    uses_lower_and AND uses_lower_or, 'lowercase AND and OR',
+    uses_lower_and, 'lowercase AND',
+    uses_lower_or, 'lowercase OR',
+    'no boolean operator'
+  ) AS boolean_cohort,
+  uses_upper_and OR uses_upper_or AS uses_upper_boolean,
+  uses_lower_and OR uses_lower_or AS uses_lower_boolean,
+  arrayFilter(
+    token -> token != '',
+    [
+      if(uses_lower_and, 'lowercase AND', NULL),
+      if(uses_lower_or, 'lowercase OR', NULL)
+    ]
+  ) AS lowercase_tokens,
+  JSONExtractArrayRaw(tupleElement(paired_event, 2), 'output', 'content') AS output_content,
+  JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', output_content)[1], 'text') AS response_text,
+  length(JSONExtractArrayRaw(response_text, 'results', 'web')) AS result_count
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+ARRAY JOIN arrayZip(started_events, completed_events) AS paired_event
+WHERE length(started_events) = length(completed_events))
+ARRAY JOIN lowercase_tokens AS lowercase_token
+WHERE gradable AND uses_lower_boolean
+GROUP BY lowercase_token
+ORDER BY calls DESC, lowercase_token ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─lowercase_token─┬─calls─┬─trials─┬─avg_query_words─┬─avg_returned_results─┬─zero_result_share─┬─avg_trial_score─┬─call_weighted_pass_rate─┐
+1. │ lowercase AND   │    85 │     78 │           11.58 │                    9 │                 0 │          0.7837 │                  0.6706 │
+2. │ lowercase OR    │    25 │     24 │           11.72 │                 9.04 │                 0 │          0.7277 │                     0.6 │
+   └─────────────────┴───────┴────────┴─────────────────┴──────────────────────┴───────────────────┴─────────────────┴─────────────────────────┘
+
+```
+
+Query 3 — trial outcomes and same-trial result-count comparison:
+
+```sql
+SELECT
+  cohort,
+  count() AS trials,
+  sum(lower_boolean_calls) AS lowercase_boolean_calls,
+  round(avg(score), 4) AS avg_score,
+  round(countIf(pass) / count(), 4) AS pass_rate,
+  round(avg(lower_result_count), 2) AS avg_lower_results,
+  round(avgIf(non_lower_result_count, non_lower_calls > 0), 2) AS avg_same_trial_non_lower_results,
+  round(avgIf(non_lower_result_count - lower_result_count, non_lower_calls > 0), 2) AS avg_result_delta,
+  round(countIf(lower_zero_results > 0) / count(), 4) AS trials_with_zero_result_lower_call
+FROM (
+  SELECT
+    multiIf(
+      has_lower_boolean AND has_upper_boolean, 'lowercase + uppercase',
+      has_lower_boolean, 'lowercase boolean present',
+      has_upper_boolean, 'uppercase only',
+      'no boolean operator'
+    ) AS cohort,
+    task_id,
+    trial_index,
+    any(score) AS score,
+    any(pass) AS pass,
+    countIf(uses_lower_boolean) AS lower_boolean_calls,
+    countIf(NOT uses_lower_boolean) AS non_lower_calls,
+    avgIf(result_count, uses_lower_boolean) AS lower_result_count,
+    avgIf(result_count, NOT uses_lower_boolean) AS non_lower_result_count,
+    countIf(uses_lower_boolean AND result_count = 0) AS lower_zero_results,
+    max(uses_lower_boolean) AS has_lower_boolean,
+    max(uses_upper_boolean) AS has_upper_boolean
+  FROM (WITH
+  JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory,
+  arrayFilter(
+    event -> JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'status') = 'started'
+      AND JSONExtractString(event, 'name') = 'you-search',
+    trajectory
+  ) AS started_events,
+  arrayFilter(
+    event -> JSONExtractString(event, 'type') = 'tool_call'
+      AND JSONExtractString(event, 'status') = 'completed'
+      AND JSONExtractString(event, 'name') = 'you-search',
+    trajectory
+  ) AS completed_events
+SELECT
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+  JSONExtractString(tupleElement(paired_event, 1), 'input', 'query') AS query,
+  replaceRegexpAll(query, '"[^"]*"', ' ') AS operator_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', query))) AS word_count,
+  match(operator_query, '(^|\\s)AND(\\s|$)') AS uses_upper_and,
+  match(operator_query, '(^|\\s)OR(\\s|$)') AS uses_upper_or,
+  match(operator_query, '(^|\\s)and(\\s|$)') AS uses_lower_and,
+  match(operator_query, '(^|\\s)or(\\s|$)') AS uses_lower_or,
+  multiIf(
+    uses_upper_and AND uses_upper_or, 'mixed uppercase AND/OR',
+    (uses_upper_and OR uses_upper_or) AND (uses_lower_and OR uses_lower_or), 'mixed case',
+    uses_upper_and, 'uppercase AND',
+    uses_upper_or, 'uppercase OR',
+    uses_lower_and AND uses_lower_or, 'lowercase AND and OR',
+    uses_lower_and, 'lowercase AND',
+    uses_lower_or, 'lowercase OR',
+    'no boolean operator'
+  ) AS boolean_cohort,
+  uses_upper_and OR uses_upper_or AS uses_upper_boolean,
+  uses_lower_and OR uses_lower_or AS uses_lower_boolean,
+  arrayFilter(
+    token -> token != '',
+    [
+      if(uses_lower_and, 'lowercase AND', NULL),
+      if(uses_lower_or, 'lowercase OR', NULL)
+    ]
+  ) AS lowercase_tokens,
+  JSONExtractArrayRaw(tupleElement(paired_event, 2), 'output', 'content') AS output_content,
+  JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', output_content)[1], 'text') AS response_text,
+  length(JSONExtractArrayRaw(response_text, 'results', 'web')) AS result_count
+FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+ARRAY JOIN arrayZip(started_events, completed_events) AS paired_event
+WHERE length(started_events) = length(completed_events))
+  WHERE gradable
+  GROUP BY task_id, trial_index
+)
+GROUP BY cohort
+ORDER BY trials DESC, cohort ASC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─cohort────────────────────┬─trials─┬─lowercase_boolean_calls─┬─avg_score─┬─pass_rate─┬─avg_lower_results─┬─avg_same_trial_non_lower_results─┬─avg_result_delta─┬─trials_with_zero_result_lower_call─┐
+1. │ no boolean operator       │   2035 │                       0 │    0.7826 │    0.6757 │               nan │                             8.57 │              nan │                                  0 │
+2. │ uppercase only            │    515 │                       0 │     0.606 │    0.4485 │               nan │                             7.79 │              nan │                                  0 │
+3. │ lowercase boolean present │     70 │                      77 │    0.8476 │    0.7286 │              9.31 │                             8.56 │            -0.73 │                                  0 │
+4. │ lowercase + uppercase     │     32 │                      33 │    0.6153 │       0.5 │              8.44 │                             8.18 │            -0.26 │                                  0 │
+   └───────────────────────────┴────────┴─────────────────────────┴───────────┴───────────┴───────────────────┴──────────────────────────────────┴──────────────────┴────────────────────────────────────┘
+
+```
 ## 3e. you-contents truncation and assistant context
 
-When you-contents was called, did the model receive truncated or unusually large content, and did those truncation-like cases affect outcomes? The trajectory stores completed you-contents output in `output.content[0].text`; Pi turns that into the following tool-result message content, so this is the best local proxy for what reached the next model call.
+When you-contents was called, did the model receive truncated or unusually large content, and what did the assistant say immediately before and after? Query 1 summarizes model-facing payload sizes and explicit truncation-like markers. Query 2 lists the top candidate calls with requested URLs, returned markdown lengths, model-facing payload head/tail, and adjacent assistant messages.
 
-Finding: the 270 truncation-like instances are a risk signal, not proof of transport truncation. The marker search matches terms such as `truncated`, `omitted`, `content too long`, `token limit`, `context length`, and `max tokens` inside the model-facing payload. Manual spot checks of the top examples show several false positives from page content or HTML/CSS, such as normal prose containing "truncated season" or class names like `TruncatedText`. In the top marker-ranked examples, the next assistant message usually did not mention truncation; several rows had no next assistant message because the run stopped after a very large tool result.
-
-Outcome impact: trials with any truncation-like marker performed worse, but they also had more completed contents calls and much larger maximum payloads. That means the observed drop is confounded by page size, task difficulty, and over-reading. The data does not support saying that the 270 marker hits directly caused failures. The stronger interpretation is that very large/noisy you-contents payloads correlate with worse outcomes, and explicit truncation-like text is one symptom of that high-risk cohort.
+Interpretation note: the marker check is a heuristic, not proof of transport truncation. Some matches are ordinary page text or CSS class names containing words like "truncated". Treat lower outcomes in the marker cohort as a risk signal that is confounded by larger payloads and more read calls, then inspect Query 2 before attributing failures to truncation.
 
 Query 1 - payload size and explicit marker summary:
 
@@ -957,16 +1221,43 @@ SELECT
   countIf(model_text_chars >= 1000000) AS calls_ge_1m_chars
 FROM (
   SELECT
-    length(JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text')) AS model_text_chars,
-    multiSearchAnyCaseInsensitive(
-      JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text'),
-      ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']
-    ) AS has_truncation_like_marker
-  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
-  ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
-  WHERE JSONExtractString(event, 'type') = 'tool_call'
-    AND JSONExtractString(event, 'name') = 'you-contents'
-    AND JSONExtractString(event, 'status') = 'completed'
+    length(model_text) AS model_text_chars,
+    multiSearchAnyCaseInsensitive(model_text, ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']) AS has_truncation_like_marker
+  FROM (SELECT
+  json,
+  events,
+  event,
+  position AS event_position,
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractString(event, 'metadata', 'toolCallId') AS call_id,
+  JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text') AS model_text
+FROM (
+  SELECT
+    json,
+    events,
+    arrayFilter(
+      (e, i) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      events,
+      arrayEnumerate(events)
+    ) AS completed_events,
+    arrayFilter(
+      (i, e) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      arrayEnumerate(events),
+      events
+    ) AS completed_positions
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+)
+ARRAY JOIN completed_events AS event, completed_positions AS position)
 )
 FORMAT Vertical
 ```
@@ -974,20 +1265,549 @@ FORMAT Vertical
 ```text
 Row 1:
 ──────
-completed_contents_calls:            13393
-calls_with_truncation_like_marker:   270
-marker_share:                        0.0202
-avg_model_text_chars:                172923
-p50_model_text_chars:                12364
-p90_model_text_chars:                229914
-p99_model_text_chars:                2590438 -- 2.59 million
-max_model_text_chars:                47901839 -- 47.90 million
-calls_ge_100k_chars:                 2463
-calls_ge_500k_chars:                 728
-calls_ge_1m_chars:                   358
+completed_contents_calls:          13393
+calls_with_truncation_like_marker: 270
+marker_share:                      0.0202
+avg_model_text_chars:              172923
+p50_model_text_chars:              12364
+p90_model_text_chars:              229914
+p99_model_text_chars:              2590438 -- 2.59 million
+max_model_text_chars:              47901839 -- 47.90 million
+calls_ge_100k_chars:               2463
+calls_ge_500k_chars:               728
+calls_ge_1m_chars:                 358
 ```
 
-Query 2 - trial outcomes for the 270 truncation-like marker calls:
+
+Query 2 - top candidate calls with before/after assistant context:
+
+```sql
+WITH top_calls AS (
+  SELECT
+    task_id,
+    trial_index,
+    event_position,
+    has_truncation_like_marker,
+    model_text_chars
+  FROM (
+    SELECT
+      task_id,
+      trial_index,
+      event_position,
+      length(model_text) AS model_text_chars,
+      multiSearchAnyCaseInsensitive(model_text, ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']) AS has_truncation_like_marker
+    FROM (SELECT
+  json,
+  events,
+  event,
+  position AS event_position,
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractString(event, 'metadata', 'toolCallId') AS call_id,
+  JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text') AS model_text
+FROM (
+  SELECT
+    json,
+    events,
+    arrayFilter(
+      (e, i) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      events,
+      arrayEnumerate(events)
+    ) AS completed_events,
+    arrayFilter(
+      (i, e) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      arrayEnumerate(events),
+      events
+    ) AS completed_positions
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+)
+ARRAY JOIN completed_events AS event, completed_positions AS position)
+  )
+  ORDER BY has_truncation_like_marker DESC, model_text_chars DESC, task_id ASC, trial_index ASC, event_position ASC
+  LIMIT 15
+)
+SELECT
+  task_id,
+  trial_index,
+  round(score, 4) AS score,
+  pass,
+  event_position,
+  call_id,
+  JSONExtractInt(event, 'durationMs') AS duration_ms,
+  length(JSONExtractArrayRaw(started_event, 'input', 'urls')) AS requested_url_count,
+  arrayStringConcat(arrayMap(url -> JSONExtractString(url), JSONExtractArrayRaw(started_event, 'input', 'urls')), ', ') AS requested_urls,
+  length(JSONExtractArrayRaw(event, 'output', 'details', 'output')) AS returned_page_count,
+  arrayStringConcat(arrayMap(page -> toString(length(JSONExtractString(page, 'markdown'))), JSONExtractArrayRaw(event, 'output', 'details', 'output')), ', ') AS returned_markdown_chars,
+  length(model_text) AS model_text_chars,
+  round(length(model_text) / 4, 0) AS approx_model_text_tokens,
+  multiSearchAnyCaseInsensitive(model_text, ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']) AS has_truncation_like_marker,
+  multiSearchAnyCaseInsensitive(next_assistant, ['truncated', 'omitted', 'too long', 'could not read', 'unable to access', 'content limit']) AS next_assistant_mentions_truncation,
+  length(prev_assistant) AS prev_assistant_chars,
+  left(replaceAll(prev_assistant, '
+', ' '), 240) AS prev_assistant_preview,
+  left(replaceAll(model_text, '
+', ' '), 240) AS model_text_head,
+  right(replaceAll(model_text, '
+', ' '), 240) AS model_text_tail,
+  length(next_assistant) AS next_assistant_chars,
+  left(replaceAll(next_assistant, '
+', ' '), 240) AS next_assistant_preview
+FROM (
+  SELECT
+    *,
+    arrayElement(
+      arrayFilter(
+        e -> JSONExtractString(e, 'type') = 'tool_call'
+          AND JSONExtractString(e, 'name') = 'you-contents'
+          AND JSONExtractString(e, 'status') = 'started'
+          AND JSONExtractString(e, 'metadata', 'toolCallId') = call_id,
+        events
+      ),
+      1
+    ) AS started_event,
+    arrayElement(
+      arrayMap(
+        e -> JSONExtractString(e, 'content'),
+        arrayFilter(
+          (e, i) -> i < event_position
+            AND JSONExtractString(e, 'type') = 'message'
+            AND JSONExtractString(e, 'role') = 'assistant',
+          events,
+          arrayEnumerate(events)
+        )
+      ),
+      -1
+    ) AS prev_assistant,
+    arrayElement(
+      arrayMap(
+        e -> JSONExtractString(e, 'content'),
+        arrayFilter(
+          (e, i) -> i > event_position
+            AND JSONExtractString(e, 'type') = 'message'
+            AND JSONExtractString(e, 'role') = 'assistant',
+          events,
+          arrayEnumerate(events)
+        )
+      ),
+      1
+    ) AS next_assistant
+  FROM (SELECT
+  json,
+  events,
+  event,
+  position AS event_position,
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractString(event, 'metadata', 'toolCallId') AS call_id,
+  JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text') AS model_text
+FROM (
+  SELECT
+    json,
+    events,
+    arrayFilter(
+      (e, i) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      events,
+      arrayEnumerate(events)
+    ) AS completed_events,
+    arrayFilter(
+      (i, e) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      arrayEnumerate(events),
+      events
+    ) AS completed_positions
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
+    FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+  )
+)
+ARRAY JOIN completed_events AS event, completed_positions AS position)
+  WHERE (task_id, trial_index, event_position) IN (
+    SELECT task_id, trial_index, event_position
+    FROM top_calls
+  )
+)
+ORDER BY has_truncation_like_marker DESC, model_text_chars DESC, task_id ASC, trial_index ASC, event_position ASC
+FORMAT Vertical
+```
+
+```text
+Row 1:
+──────
+task_id:                            deepsearchqa-772
+trial_index:                        2
+score:                              0
+pass:                               0
+event_position:                     18
+call_id:                            call_8f4190f4c5813bce
+duration_ms:                        2504
+requested_url_count:                4
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1559720/000155972022000009/abnb-20220331.htm, https://www.sec.gov/Archives/edgar/data/1559720/000155972022000012/abnb-20220630.htm, https://www.sec.gov/Archives/edgar/data/1559720/000155972022000019/abnb-20220930.htm, https://www.sec.gov/Archives/edgar/data/1559720/000155972023000003/abnb-20221231.htm
+returned_page_count:                4
+returned_markdown_chars:            185704, 167913, 259344, 712789
+model_text_chars:                   6703776 -- 6.70 million
+approx_model_text_tokens:           1675944 -- 1.68 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               158
+prev_assistant_preview:               Now I have the URLs for all four filings. Let me access them directly to get the exact unearned fees numbers from the Condensed Consolidated Balance Sheets.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/1559720/000155972022000009/abnb-20220331.htm","title":"abnb-20220331","markdown":"000155972012/312022Q1false0.003464500015597202022-01-012022-03-310001559720us-gaap:CommonClassAMemb
+model_text_tail:                    a Johnson | Director | February 17, 2023 |\n| Belinda Johnson |\n|  |  |  |\n| /s/ Jeffrey Jordan | Director | February 17, 2023 |\n| Jeffrey Jordan |\n|  |  |  |\n| /s/ Alfred Lin | Director | February 17, 2023 |\n| Alfred Lin |\n\n110"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 2:
+──────
+task_id:                            deepsearchqa-439
+trial_index:                        2
+score:                              0
+pass:                               0
+event_position:                     14
+call_id:                            call_01a02140ac5e71c2a8f73306
+duration_ms:                        3126
+requested_url_count:                3
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1404655/000156459020004381/hubs-10k_20191231.htm, https://investors.dropbox.com/node/7276/html, https://content.edgar-online.com/ExternalLink/EDGAR/0001517375-20-000012.html?hash=85d5be64f132a544ac40816fbaaa262ede360ef39a122cf70af13797b7576bff&dest=EXHIBIT1018FORMGRANTNOTICE_HTM
+returned_page_count:                3
+returned_markdown_chars:            6359, 75838, 444769
+model_text_chars:                   5739903 -- 5.74 million
+approx_model_text_tokens:           1434976 -- 1.43 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               76
+prev_assistant_preview:               Let me retrieve the actual gross profit figures from each2019 10-K filing.
+model_text_head:                    {"output":[{"url":"https://investors.dropbox.com/node/7276/html","title":"SEC Filing | Dropbox","markdown":"Document\n\n\n\n\n\nUNITED STATES\n\nSECURITIES AND EXCHANGE COMMISSION\n\nWashington, D.C. 20549\n\n\n\n\n\n\n\n(Mark One)\n\nx ANN
+model_text_tail:                    \n| /s/ Jay Simons |  | Director |  | February 12, 2020 |\n| Jay Simons |  |  |\n\n|     |     |     |     |     |\n| --- | --- | --- | --- | --- |\n| /s/ Jill Ward |  | Director |  | February 12, 2020 |\n| Jill Ward |  |  |  |  |\n\n92"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 3:
+──────
+task_id:                            deepsearchqa-439
+trial_index:                        0
+score:                              0
+pass:                               0
+event_position:                     18
+call_id:                            chatcmpl-tool-9376057cd1397da5
+duration_ms:                        5180
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1404655/000156459020004381/hubs-10k_20191231.htm
+returned_page_count:                1
+returned_markdown_chars:            444769
+model_text_chars:                   5655284 -- 5.66 million
+approx_model_text_tokens:           1413821 -- 1.41 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               112
+prev_assistant_preview:             Now let me access the actual 10-K filings to extract the specific gross profit figures for 2017, 2018, and 2019.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/1404655/000156459020004381/hubs-10k_20191231.htm","title":"\nhubs-10k_20191231.htm\n","html":"<!--?xml  version=\"1.0\" encoding=\"utf-8\"?--><!-- DFIN ActiveDisclosure(SM) Inline X
+model_text_tail:                    \n| /s/ Jay Simons |  | Director |  | February 12, 2020 |\n| Jay Simons |  |  |\n\n|     |     |     |     |     |\n| --- | --- | --- | --- | --- |\n| /s/ Jill Ward |  | Director |  | February 12, 2020 |\n| Jill Ward |  |  |  |  |\n\n92"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 4:
+──────
+task_id:                            deepsearchqa-439
+trial_index:                        1
+score:                              0
+pass:                               0
+event_position:                     18
+call_id:                            call_42d24a95e88d40f78ec2b40d
+duration_ms:                        3244
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1404655/000156459020004381/hubs-10k_20191231.htm
+returned_page_count:                1
+returned_markdown_chars:            444769
+model_text_chars:                   5655284 -- 5.66 million
+approx_model_text_tokens:           1413821 -- 1.41 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               102
+prev_assistant_preview:               I've found the 10-K filings. Now let me extract the gross profit data from each company's 2019 10-K.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/1404655/000156459020004381/hubs-10k_20191231.htm","title":"\nhubs-10k_20191231.htm\n","html":"<!--?xml  version=\"1.0\" encoding=\"utf-8\"?--><!-- DFIN ActiveDisclosure(SM) Inline X
+model_text_tail:                    \n| /s/ Jay Simons |  | Director |  | February 12, 2020 |\n| Jay Simons |  |  |\n\n|     |     |     |     |     |\n| --- | --- | --- | --- | --- |\n| /s/ Jill Ward |  | Director |  | February 12, 2020 |\n| Jill Ward |  |  |  |  |\n\n92"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 5:
+──────
+task_id:                            deepsearchqa-790
+trial_index:                        0
+score:                              0
+pass:                               0
+event_position:                     21
+call_id:                            chatcmpl-tool-a6b2d085a8583994
+duration_ms:                        3691
+requested_url_count:                2
+requested_urls:                     https://d18rn0p25nwr6d.cloudfront.net/CIK-0000027904/4062dcf6-2f8c-4727-afc8-55f364c951f3.pdf, https://www.sec.gov/Archives/edgar/data/92380/000009238021000033/luv-20201231.htm
+returned_page_count:                2
+returned_markdown_chars:            739375, 652731
+model_text_chars:                   5289632 -- 5.29 million
+approx_model_text_tokens:           1322408 -- 1.32 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               113
+prev_assistant_preview:             Let me access the actual 10-K filings to get the specific balance sheet data for each airline's fiscal year 2020.
+model_text_head:                    {"output":[{"url":"https://d18rn0p25nwr6d.cloudfront.net/CIK-0000027904/4062dcf6-2f8c-4727-afc8-55f364c951f3.pdf","title":"d18rn0p25nwr6d.cloudfront.net/CIK-0000027904/4062dcf6-2f8c-4727-afc8-55f364c951f3.pdf","markdown":"UNITED STATES\r\n
+model_text_tail:                    LIEBLEIN |  | Director |\n| Grace D. Lieblein |  |  |\n|  |  |  |\n| /s/    NANCY B. LOEFFLER |  | Director |\n| Nancy B. Loeffler |  |  |\n|  |  |  |\n| /s/    JOHN T. MONTFORD |  | Director |\n| John T. Montford |  |  |\n\n151"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 6:
+──────
+task_id:                            deepsearchqa-896
+trial_index:                        1
+score:                              0
+pass:                               0
+event_position:                     23
+call_id:                            chatcmpl-tool-993e603947f8dc64
+duration_ms:                        2654
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1286681/000095017025025223/dpz-20241229.htm
+returned_page_count:                1
+returned_markdown_chars:            456538
+model_text_chars:                   5268741 -- 5.27 million
+approx_model_text_tokens:           1317185 -- 1.32 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               80
+prev_assistant_preview:             Now let me access the actual SEC 10-K filings to get specific financial figures.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/1286681/000095017025025223/dpz-20241229.htm","title":"10-K","html":"<!--?xml version='1.0' encoding='ASCII'?--><!-- DFIN New ActiveDisclosure (SM) Inline XBRL Document - http://www.
+model_text_tail:                    \n|  |  |  |\n| /s/ James A. Goldman |  |  |\n| James A. Goldman |  | Director |\n| February 24, 2025 |  |  |\n|  |  |  |\n| /s/ Patricia E. Lopez |  |  |\n| Patricia E. Lopez |  | Director |\n| February 24, 2025 |  |  |\n\n101\n\n* * *"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 7:
+──────
+task_id:                            deepsearchqa-790
+trial_index:                        1
+score:                              0
+pass:                               0
+event_position:                     23
+call_id:                            chatcmpl-tool-8043b1694c8bda50
+duration_ms:                        2316
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/92380/000009238021000033/luv-20201231.htm
+returned_page_count:                1
+returned_markdown_chars:            652731
+model_text_chars:                   4535336 -- 4.54 million
+approx_model_text_tokens:           1133834 -- 1.13 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               80
+prev_assistant_preview:             Let me access the actual 10-K filings on SEC.gov to find the balance sheet data.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/92380/000009238021000033/luv-20201231.htm","title":"luv-20201231","html":"<!--?xml version=\"1.0\" ?--><!--XBRL Document Created with Wdesk from Workiva--><!--Copyright 2021 Workiva
+model_text_tail:                    LIEBLEIN |  | Director |\n| Grace D. Lieblein |  |  |\n|  |  |  |\n| /s/    NANCY B. LOEFFLER |  | Director |\n| Nancy B. Loeffler |  |  |\n|  |  |  |\n| /s/    JOHN T. MONTFORD |  | Director |\n| John T. Montford |  |  |\n\n151"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 8:
+──────
+task_id:                            deepsearchqa-790
+trial_index:                        2
+score:                              0
+pass:                               0
+event_position:                     38
+call_id:                            call_8ff291b2d1cd2430
+duration_ms:                        2629
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/92380/000009238021000033/luv-20201231.htm
+returned_page_count:                1
+returned_markdown_chars:            652731
+model_text_chars:                   4535336 -- 4.54 million
+approx_model_text_tokens:           1133834 -- 1.13 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               174
+prev_assistant_preview:             Now I have the direct URLs to each airline's FY2020 10-K filing document. Let me access each one to extract the balance sheet data for current assets and current liabilities.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/92380/000009238021000033/luv-20201231.htm","title":"luv-20201231","html":"<!--?xml version=\"1.0\" ?--><!--XBRL Document Created with Wdesk from Workiva--><!--Copyright 2021 Workiva
+model_text_tail:                    LIEBLEIN |  | Director |\n| Grace D. Lieblein |  |  |\n|  |  |  |\n| /s/    NANCY B. LOEFFLER |  | Director |\n| Nancy B. Loeffler |  |  |\n|  |  |  |\n| /s/    JOHN T. MONTFORD |  | Director |\n| John T. Montford |  |  |\n\n151"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 9:
+───────
+task_id:                            deepsearchqa-772
+trial_index:                        0
+score:                              0
+pass:                               0
+event_position:                     55
+call_id:                            call_78fd6ad8b6ee46e8b1f4b9e2
+duration_ms:                        1954
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1559720/000155972023000003/abnb-20221231.htm
+returned_page_count:                1
+returned_markdown_chars:            712789
+model_text_chars:                   4004473 -- 4.00 million
+approx_model_text_tokens:           1001118 -- 1.00 million
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               135
+prev_assistant_preview:             I have all the data I need. Let me get the exact Q4 2022 (December 31, 2022) unearned fees from the 10-K filing to confirm the figures.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/1559720/000155972023000003/abnb-20221231.htm","title":"abnb-20221231","html":"<!--?xml version=\"1.0\" ?--><!--XBRL Document Created with Wdesk from Workiva--><!--Copyright 2023 Wor
+model_text_tail:                    a Johnson | Director | February 17, 2023 |\n| Belinda Johnson |\n|  |  |  |\n| /s/ Jeffrey Jordan | Director | February 17, 2023 |\n| Jeffrey Jordan |\n|  |  |  |\n| /s/ Alfred Lin | Director | February 17, 2023 |\n| Alfred Lin |\n\n110"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 10:
+───────
+task_id:                            deepsearchqa-12
+trial_index:                        0
+score:                              0
+pass:                               0
+event_position:                     70
+call_id:                            call_9d0c5c582f5809b2
+duration_ms:                        2431
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/63276/000162828024011371/mat-20231231.htm
+returned_page_count:                1
+returned_markdown_chars:            502727
+model_text_chars:                   3405830 -- 3.41 million
+approx_model_text_tokens:           851458
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               108
+prev_assistant_preview:               Now I have the key balance sheet data. Let me verify Mattel's exact balance sheet figures from their 10-K.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/63276/000162828024011371/mat-20231231.htm","title":"mat-20231231","html":"<!--?xml version='1.0' encoding='ASCII'?--><html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:ixt=\"http://
+model_text_tail:                     allowances on certain U.S. federal, state, and foreign deferred tax assets. See Item 8 \"Financial Statements and Supplementary Data – Note 16 to the Consolidated Financial Statements – Income Taxes\" for additional details.\n\n105"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 11:
+───────
+task_id:                            deepsearchqa-12
+trial_index:                        2
+score:                              0
+pass:                               0
+event_position:                     32
+call_id:                            call_bb13060692b482ca
+duration_ms:                        2089
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/63276/000162828024011371/mat-20231231.htm
+returned_page_count:                1
+returned_markdown_chars:            502727
+model_text_chars:                   3405830 -- 3.41 million
+approx_model_text_tokens:           851458
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               107
+prev_assistant_preview:             I have the JAKKS Pacific and Hasbro 10-K data. Now let me get the Mattel and Funko 10-K balance sheet data.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/63276/000162828024011371/mat-20231231.htm","title":"mat-20231231","html":"<!--?xml version='1.0' encoding='ASCII'?--><html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:ixt=\"http://
+model_text_tail:                     allowances on certain U.S. federal, state, and foreign deferred tax assets. See Item 8 \"Financial Statements and Supplementary Data – Note 16 to the Consolidated Financial Statements – Income Taxes\" for additional details.\n\n105"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 12:
+───────
+task_id:                            deepsearchqa-507
+trial_index:                        1
+score:                              0.697
+pass:                               0
+event_position:                     24
+call_id:                            call_9ab5bfe9432746dba0e2fce8
+duration_ms:                        2289
+requested_url_count:                1
+requested_urls:                     https://api.worldbank.org/v2/sources/2/indicators?source=2&format=json&per_page=20000
+returned_page_count:                1
+returned_markdown_chars:            1475189
+model_text_chars:                   3093535 -- 3.09 million
+approx_model_text_tokens:           773384
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               250
+prev_assistant_preview:             I attempted the wrong indicator code. Let me query the correct World Bank API indicator codes for the emergency funds data. Based on the URL structure, the indicators are `fin24b` (7 days) and `fin24a` (30 days). Let me find the correct WB 
+model_text_head:                    {"output":[{"url":"https://api.worldbank.org/v2/sources/2/indicators?source=2&format=json&per_page=20000","html":"<html><body>[{\"page\":1,\"pages\":1,\"per_page\":\"20000\",\"total\":1498},[{\"id\":\"AG.CON.FERT.PT.ZS\",\"name\":\"Fertiliz
+model_text_tail:                    with the intent to cause death or serious injury.\",\"sourceOrganization\":\"UNODC Research - Data Portal – Intentional Homicide, UN Office on Drugs and Crime (UNODC)\",\"topics\":[{\"id\":\"13\",\"value\":\"Public Sector \"}]}]]\n```"}]}
+next_assistant_chars:               302
+next_assistant_preview:             I have the complete list of indicator codes. The relevant indicators are `fin24b` (7 days possible) and `fin24a` (30 days possible). However, these are DataBank IDs, not the standardized API codes. Let me query the World Bank's DataBank API
+
+Row 13:
+───────
+task_id:                            deepsearchqa-507
+trial_index:                        0
+score:                              0.3939
+pass:                               0
+event_position:                     72
+call_id:                            call_4332013346924beb994c43f0
+duration_ms:                        2506
+requested_url_count:                1
+requested_urls:                     https://api.worldbank.org/v2/en/indicator?source=2&format=json&per_page=20000&page=1
+returned_page_count:                1
+returned_markdown_chars:            1475189
+model_text_chars:                   3093534 -- 3.09 million
+approx_model_text_tokens:           773384
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               106
+prev_assistant_preview:             Let me try to access the World Bank Data360 / indicator data via the direct API for the Findex indicators.
+model_text_head:                    {"output":[{"url":"https://api.worldbank.org/v2/en/indicator?source=2&format=json&per_page=20000&page=1","html":"<html><body>[{\"page\":1,\"pages\":1,\"per_page\":\"20000\",\"total\":1498},[{\"id\":\"AG.CON.FERT.PT.ZS\",\"name\":\"Fertilize
+model_text_tail:                    with the intent to cause death or serious injury.\",\"sourceOrganization\":\"UNODC Research - Data Portal – Intentional Homicide, UN Office on Drugs and Crime (UNODC)\",\"topics\":[{\"id\":\"13\",\"value\":\"Public Sector \"}]}]]\n```"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 14:
+───────
+task_id:                            deepsearchqa-439
+trial_index:                        1
+score:                              0
+pass:                               0
+event_position:                     17
+call_id:                            call_9376262648be468e84d6d094
+duration_ms:                        2124
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/1517375/000151737520000012/spt10-k12312019.htm
+returned_page_count:                1
+returned_markdown_chars:            425792
+model_text_chars:                   2719625 -- 2.72 million
+approx_model_text_tokens:           679906
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               102
+prev_assistant_preview:               I've found the 10-K filings. Now let me extract the gross profit data from each company's 2019 10-K.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/1517375/000151737520000012/spt10-k12312019.htm","html":"<html><body><document>\n<type>10-K\n<sequence>1\n<filename>spt10-k12312019.htm\n<description>10-K\n<text>\n\n\n\t\n\t\t<!-- D
+model_text_tail:                    \n|  |  |  |  |  |\n| /s/ Jason Kreuziger |  |  |  |  |\n| Jason Kreuziger |  | Director |  | February 27, 2020 |\n|  |  |  |  |  |\n| /s/ Karen Walker |  |  |  |  |\n| Karen Walker |  | Director |  | February 27, 2020 |\n\n120\n\n* * *"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+
+Row 15:
+───────
+task_id:                            deepsearchqa-623
+trial_index:                        1
+score:                              0
+pass:                               0
+event_position:                     26
+call_id:                            call_49b962bec63240819d9e3ddd
+duration_ms:                        3341
+requested_url_count:                1
+requested_urls:                     https://www.sec.gov/Archives/edgar/data/896156/000143774923024609/eth20230630_10k.htm
+returned_page_count:                1
+returned_markdown_chars:            373064
+model_text_chars:                   2706820 -- 2.71 million
+approx_model_text_tokens:           676705
+has_truncation_like_marker:         1
+next_assistant_mentions_truncation: 0
+prev_assistant_chars:               108
+prev_assistant_preview:              Now I need to fetch the actual 10-K documents and search for the geographic breakdown of long-lived assets.
+model_text_head:                    {"output":[{"url":"https://www.sec.gov/Archives/edgar/data/896156/000143774923024609/eth20230630_10k.htm","title":"eth20230630_10k.htm","html":"<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:ref=\"http://www.xbrl.org/2006/ref\" xmlns:xb
+model_text_tail:                    |  |  |  |  |  |\n| /s/ Tara I. Stacom |  | Director |  | August 24, 2023 |\n| (Tara I. Stacom) |  |  |  |  |\n|  |  |  |  |  |\n| /s/ Cynthia Ekberg Tsai |  | Director |  | August 24, 2023 |\n| (Cynthia Ekberg Tsai) |  |  |  |  |\n\n76"}]}
+next_assistant_chars:               0
+next_assistant_preview:             
+```
+
+
+Query 3 - trial outcomes for the 270 truncation-like marker calls:
 
 ```sql
 SELECT
@@ -1013,20 +1833,47 @@ FROM (
     max(model_text_chars) AS max_model_text_chars
   FROM (
     SELECT
-      JSONExtractString(json, 'taskId') AS task_id,
-      JSONExtractInt(json, 'trialIndex') AS trial_index,
-      JSONExtractFloat(json, 'score') AS score,
-      JSONExtractBool(json, 'pass') AS pass,
-      length(JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text')) AS model_text_chars,
-      multiSearchAnyCaseInsensitive(
-        JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text'),
-        ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']
-      ) AS has_truncation_like_marker
+      task_id,
+      trial_index,
+      score,
+      pass,
+      length(model_text) AS model_text_chars,
+      multiSearchAnyCaseInsensitive(model_text, ['truncated', 'omitted', 'content too long', 'token limit', 'context length', 'max tokens']) AS has_truncation_like_marker
+    FROM (SELECT
+  json,
+  events,
+  event,
+  position AS event_position,
+  JSONExtractString(json, 'taskId') AS task_id,
+  JSONExtractInt(json, 'trialIndex') AS trial_index,
+  JSONExtractFloat(json, 'score') AS score,
+  JSONExtractBool(json, 'pass') AS pass,
+  JSONExtractString(event, 'metadata', 'toolCallId') AS call_id,
+  JSONExtractString(JSONExtractRaw(JSONExtractRaw(event, 'output'), 'content', 1), 'text') AS model_text
+FROM (
+  SELECT
+    json,
+    events,
+    arrayFilter(
+      (e, i) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      events,
+      arrayEnumerate(events)
+    ) AS completed_events,
+    arrayFilter(
+      (i, e) -> JSONExtractString(e, 'type') = 'tool_call'
+        AND JSONExtractString(e, 'name') = 'you-contents'
+        AND JSONExtractString(e, 'status') = 'completed',
+      arrayEnumerate(events),
+      events
+    ) AS completed_positions
+  FROM (
+    SELECT json, JSONExtractArrayRaw(json, 'trial', 'trajectory') AS events
     FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
-    ARRAY JOIN JSONExtractArrayRaw(json, 'trial', 'trajectory') AS event
-    WHERE JSONExtractString(event, 'type') = 'tool_call'
-      AND JSONExtractString(event, 'name') = 'you-contents'
-      AND JSONExtractString(event, 'status') = 'completed'
+  )
+)
+ARRAY JOIN completed_events AS event, completed_positions AS position)
   )
   GROUP BY task_id, trial_index
 )
@@ -1062,8 +1909,6 @@ avg_max_model_text_chars:       656819
 p50_max_model_text_chars:       106928
 p90_max_model_text_chars:       1117594 -- 1.12 million
 ```
-
-Full before/after assistant context for the top candidate calls is generated by `analysis/contents-truncation-context.ts`.
 
 ## 4. Citation and output-format fidelity
 
@@ -2183,3 +3028,332 @@ Solutions that are already covered by program.md levers are marked. New candidat
 - All patterns are **observational** across a single model (minimax-m3) × harness (Pi) × tool surface (You.com MCP). The "hypotheses" are untested and some may not transfer to other models.
 - The trial-length confound is pervasive: FAIL trials are longer, so any per-trial aggregate (total reads, total searches, total couplings) is inflated for FAIL. Per-round normalization is used where possible, but residual confounding remains — longer trials may reflect intrinsically harder tasks.
 - These patterns inform the auto-research `.auto/program.md` levers and seed ideas, but the final word is the 5-minute sample hill-climb and the full-eval validation gate, not observational correlations.
+## 7. Zero-result you-search calls and recovery behavior
+
+Zero-result searches are a 0.53% tail (132 calls across 46 trials of 24,775 completed searches), but what the model does next is concentrated and mostly wrong: it searches again 95% of the time and reads only 5% of the time. The worst recovery is the most degenerate — 54 calls (41%) re-search with an empty query string, scoring avg trial score 0.6878 at a 0.3704 call-weighted pass rate. A separate cohort isolates argument-shape errors: 39 calls across 11 trials where the query string is present in the raw event but nested under `input.extraction` instead of `input` — always fatal (0% pass). Unsupported operator syntax (`site:`, `lang:`, `loc:`, `filetype:`, `ext:`, `inpage:`, uppercase `NOT`) appears in 5.01% of searches, consistent with the 1,245 violating calls measured by direction 3d; PR #109 normalizes `site:`/`lang:`/`loc:` server-side, so the remaining violations narrow to pass-through operators and `NOT`.
+
+Caveats: word-count-based narrowed/expanded distinctions are unreliable in this clickhouse-local build (nested lambdas mis-evaluate), so re-searches with a different non-empty query are grouped as `reworded`. All patterns are observational across a single model × harness × tool surface; the trial-length confound applies.
+
+Query 1 — overall zero-result and unsupported-operator profile across you-search calls:
+
+```sql
+SELECT
+  countIf(status = 'started') AS started_searches,
+  countIf(status = 'completed') AS completed_searches,
+  round(countIf(status = 'completed' AND result_count = 0) / completed_searches, 4) AS zero_result_share,
+  uniqExactIf(concat(task_id, '#', toString(trial_index)), status = 'completed' AND result_count = 0) AS trials_with_zero_result,
+  round(countIf(status = 'started' AND (match(replaceRegexpAll(query, '"[^"]*"', ' '), '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):') OR match(replaceRegexpAll(query, '"[^"]*"', ' '), '(^|\\s)NOT(\\s|$)'))) / countIf(status = 'started'), 4) AS unsupported_operator_share
+FROM (SELECT
+  task_id, trial_index, score, pass, gradable,
+  tupleElement(paired, 1) AS event,
+  tupleElement(paired, 2) AS next_event,
+  JSONExtractString(event, 'type') AS type,
+  JSONExtractString(event, 'name') AS name,
+  JSONExtractString(event, 'status') AS status,
+  JSONExtractString(event, 'input', 'query') AS query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(query, '"[^"]*"', ' ')))) AS word_count,
+  length(JSONExtractArrayRaw(JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', JSONExtractArrayRaw(event, 'output', 'content'))[1], 'text'), 'results', 'web')) AS result_count,
+  JSONExtractString(next_event, 'type') AS next_type,
+  JSONExtractString(next_event, 'name') AS next_name,
+  JSONExtractString(next_event, 'status') AS next_status,
+  JSONExtractString(next_event, 'input', 'query') AS next_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(next_query, '"[^"]*"', ' ')))) AS next_word_count,
+  match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(^|\\s)NOT(\\s|$)') AS next_uses_unsupported_operator
+FROM (
+  SELECT
+    JSONExtractString(json, 'taskId') AS task_id,
+    JSONExtractInt(json, 'trialIndex') AS trial_index,
+    JSONExtractFloat(json, 'score') AS score,
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+)
+ARRAY JOIN arrayZip(trajectory, arrayResize(arrayPushFront(arrayPopBack(trajectory), ''), length(trajectory), '')) AS paired
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') IN ('started', 'completed'))
+WHERE gradable
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─started_searches─┬─completed_searches─┬─zero_result_share─┬─trials_with_zero_result─┬─unsupported_operator_share─┐
+1. │            24828 │              24775 │            0.0053 │                      46 │                     0.0501 │
+   └──────────────────┴────────────────────┴───────────────────┴─────────────────────────┴────────────────────────────┘
+
+```
+
+Query 2 — argument-shape cohorts across started you-search calls:
+
+```sql
+SELECT
+  multiIf(
+    NOT empty(JSONExtractString(event, 'input', 'query')), 'flat (input.query)',
+    position(event, '"query"') > 0, 'nested (input.extraction.query)',
+    'no query string'
+  ) AS shape,
+  count() AS calls,
+  round(count() / sum(count()) OVER (), 4) AS share,
+  uniqExact(concat(task_id, '#', toString(trial_index))) AS trials,
+  round(avg(score), 4) AS avg_trial_score,
+  round(countIf(pass) / count(), 4) AS call_weighted_pass_rate
+FROM (SELECT
+  task_id, trial_index, score, pass, gradable,
+  tupleElement(paired, 1) AS event,
+  tupleElement(paired, 2) AS next_event,
+  JSONExtractString(event, 'type') AS type,
+  JSONExtractString(event, 'name') AS name,
+  JSONExtractString(event, 'status') AS status,
+  JSONExtractString(event, 'input', 'query') AS query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(query, '"[^"]*"', ' ')))) AS word_count,
+  length(JSONExtractArrayRaw(JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', JSONExtractArrayRaw(event, 'output', 'content'))[1], 'text'), 'results', 'web')) AS result_count,
+  JSONExtractString(next_event, 'type') AS next_type,
+  JSONExtractString(next_event, 'name') AS next_name,
+  JSONExtractString(next_event, 'status') AS next_status,
+  JSONExtractString(next_event, 'input', 'query') AS next_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(next_query, '"[^"]*"', ' ')))) AS next_word_count,
+  match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(^|\\s)NOT(\\s|$)') AS next_uses_unsupported_operator
+FROM (
+  SELECT
+    JSONExtractString(json, 'taskId') AS task_id,
+    JSONExtractInt(json, 'trialIndex') AS trial_index,
+    JSONExtractFloat(json, 'score') AS score,
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+)
+ARRAY JOIN arrayZip(trajectory, arrayResize(arrayPushFront(arrayPopBack(trajectory), ''), length(trajectory), '')) AS paired
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') IN ('started', 'completed'))
+WHERE gradable AND status = 'started'
+GROUP BY shape
+ORDER BY calls DESC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─shape───────────────────────────┬─calls─┬──share─┬─trials─┬─avg_trial_score─┬─call_weighted_pass_rate─┐
+1. │ flat (input.query)              │ 24785 │ 0.9983 │   2667 │          0.6709 │                  0.5264 │
+2. │ nested (input.extraction.query) │    39 │ 0.0016 │     11 │          0.5295 │                       0 │
+3. │ no query string                 │     4 │ 0.0002 │      3 │          0.4545 │                       0 │
+   └─────────────────────────────────┴───────┴────────┴────────┴─────────────────┴─────────────────────────┘
+
+```
+
+Query 3 — recovery cohorts after a zero-result search:
+
+```sql
+SELECT
+  multiIf(
+    next_name NOT IN ('you-search', 'you-contents'), if(next_type = 'tool_call', concat('switched to ', next_name), 'no follow-up event'),
+    next_name = 'you-contents', 'read after zero-results',
+    next_word_count = 0, 'searched with empty query',
+    next_query = query AND next_uses_unsupported_operator, 'repeated with operators',
+    next_query = query, 'repeated verbatim',
+    'reworded'
+  ) AS recovery,
+  count() AS calls,
+  round(count() / sum(count()) OVER (), 4) AS share,
+  round(avg(score), 4) AS avg_trial_score,
+  round(countIf(pass) / count(), 4) AS call_weighted_pass_rate
+FROM (SELECT
+  task_id, trial_index, score, pass, gradable,
+  tupleElement(paired, 1) AS event,
+  tupleElement(paired, 2) AS next_event,
+  JSONExtractString(event, 'type') AS type,
+  JSONExtractString(event, 'name') AS name,
+  JSONExtractString(event, 'status') AS status,
+  JSONExtractString(event, 'input', 'query') AS query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(query, '"[^"]*"', ' ')))) AS word_count,
+  length(JSONExtractArrayRaw(JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', JSONExtractArrayRaw(event, 'output', 'content'))[1], 'text'), 'results', 'web')) AS result_count,
+  JSONExtractString(next_event, 'type') AS next_type,
+  JSONExtractString(next_event, 'name') AS next_name,
+  JSONExtractString(next_event, 'status') AS next_status,
+  JSONExtractString(next_event, 'input', 'query') AS next_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(next_query, '"[^"]*"', ' ')))) AS next_word_count,
+  match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(^|\\s)NOT(\\s|$)') AS next_uses_unsupported_operator
+FROM (
+  SELECT
+    JSONExtractString(json, 'taskId') AS task_id,
+    JSONExtractInt(json, 'trialIndex') AS trial_index,
+    JSONExtractFloat(json, 'score') AS score,
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+)
+ARRAY JOIN arrayZip(trajectory, arrayResize(arrayPushFront(arrayPopBack(trajectory), ''), length(trajectory), '')) AS paired
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') IN ('started', 'completed'))
+WHERE gradable AND status = 'completed' AND result_count = 0
+GROUP BY recovery
+ORDER BY calls DESC
+FORMAT PrettyCompact
+```
+
+```text
+   ┌─recovery──────────────────┬─calls─┬──share─┬─avg_trial_score─┬─call_weighted_pass_rate─┐
+1. │ reworded                  │    71 │ 0.5379 │          0.7291 │                  0.3803 │
+2. │ searched with empty query │    54 │ 0.4091 │          0.6878 │                  0.3704 │
+3. │ read after zero-results   │     7 │  0.053 │          0.8835 │                  0.4286 │
+   └───────────────────────────┴───────┴────────┴─────────────────┴─────────────────────────┘
+
+```
+
+Query 4 — failed-eval examples with zero-result query and follow-up:
+
+```sql
+SELECT
+  task_id,
+  trial_index,
+  round(score, 4) AS score,
+  query AS zero_result_query,
+  word_count,
+  if(next_name = 'you-search', 'searched again', if(next_name = 'you-contents', 'read', if(next_type = 'tool_call', concat('used ', next_name), 'stopped'))) AS next_action,
+  next_query
+FROM (SELECT
+  task_id, trial_index, score, pass, gradable,
+  tupleElement(paired, 1) AS event,
+  tupleElement(paired, 2) AS next_event,
+  JSONExtractString(event, 'type') AS type,
+  JSONExtractString(event, 'name') AS name,
+  JSONExtractString(event, 'status') AS status,
+  JSONExtractString(event, 'input', 'query') AS query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(query, '"[^"]*"', ' ')))) AS word_count,
+  length(JSONExtractArrayRaw(JSONExtractString(arrayFilter(x -> JSONExtractString(x, 'type') = 'text', JSONExtractArrayRaw(event, 'output', 'content'))[1], 'text'), 'results', 'web')) AS result_count,
+  JSONExtractString(next_event, 'type') AS next_type,
+  JSONExtractString(next_event, 'name') AS next_name,
+  JSONExtractString(next_event, 'status') AS next_status,
+  JSONExtractString(next_event, 'input', 'query') AS next_query,
+  length(arrayFilter(x -> x != '', splitByRegexp('[^0-9A-Za-z]+', replaceRegexpAll(next_query, '"[^"]*"', ' ')))) AS next_word_count,
+  match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(?i)(^|\\s)(site|lang|loc|filetype|ext|inpage):')
+    OR match(replaceRegexpAll(next_query, '"[^"]*"', ' '), '(^|\\s)NOT(\\s|$)') AS next_uses_unsupported_operator
+FROM (
+  SELECT
+    JSONExtractString(json, 'taskId') AS task_id,
+    JSONExtractInt(json, 'trialIndex') AS trial_index,
+    JSONExtractFloat(json, 'score') AS score,
+    JSONExtractBool(json, 'pass') AS pass,
+    JSONExtractBool(json, 'trial', 'task', 'metadata', 'gradable') AS gradable,
+    JSONExtractArrayRaw(json, 'trial', 'trajectory') AS trajectory
+  FROM file('data/graded.jsonl', 'JSONAsString', 'json String')
+)
+ARRAY JOIN arrayZip(trajectory, arrayResize(arrayPushFront(arrayPopBack(trajectory), ''), length(trajectory), '')) AS paired
+WHERE JSONExtractString(event, 'type') = 'tool_call'
+  AND JSONExtractString(event, 'name') = 'you-search'
+  AND JSONExtractString(event, 'status') IN ('started', 'completed'))
+WHERE gradable AND status = 'completed' AND result_count = 0
+ORDER BY score ASC, task_id ASC, trial_index ASC
+LIMIT 10
+FORMAT Vertical
+```
+
+```text
+Row 1:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        site:nsc.org state traffic fatalities 2022 vehicle registration rate
+
+Row 2:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        
+
+Row 3:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        
+
+Row 4:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        "plug-in vehicle registrations" "2021" "2022" "per thousand people"
+
+Row 5:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        
+
+Row 6:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        
+
+Row 7:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        site:energy.gov/cmei/vehicles/articles "registrations" "2022" "2021" EV
+
+Row 8:
+──────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        
+
+Row 9:
+───────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        "increase" "10,000 people" plug-in vehicle registrations state 2022 DOE
+
+Row 10:
+───────
+task_id:           deepsearchqa-274
+trial_index:       2
+score:             0
+zero_result_query: 
+word_count:        0
+next_action:       searched again
+next_query:        
+
+```

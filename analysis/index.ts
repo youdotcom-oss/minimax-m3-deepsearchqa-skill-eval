@@ -6,6 +6,7 @@ import { run as queryEvolution } from './query-evolution.ts'
 import { run as readDifficulty } from './read-difficulty.ts'
 import { run as readDiscipline } from './read-discipline.ts'
 import { run as roundProfile } from './round-profile.ts'
+import { run as searchBooleanOperators } from './search-boolean-operators.ts'
 import { run as searchCountDetail } from './search-count-detail.ts'
 import { run as searchCountRound } from './search-count-round.ts'
 import { run as searchParams } from './search-params.ts'
@@ -13,6 +14,7 @@ import { run as searchQueryCompliance } from './search-query-compliance.ts'
 import { run as searchReadCoupling } from './search-read-coupling.ts'
 import { run as sourceDiversity } from './source-diversity.ts'
 import { run as toolBudget } from './tool-budget.ts'
+import { run as zeroResultRecovery } from './zero-result-recovery.ts'
 
 const HEADER = `# Tool & skill usage analysis
 
@@ -31,6 +33,7 @@ const directions = [
   searchCountRound,
   searchParams,
   searchQueryCompliance,
+  searchBooleanOperators,
   contentsTruncationContext,
   citationFidelity,
   sourceDiversity,
@@ -38,6 +41,7 @@ const directions = [
   queryEvolution,
   searchReadCoupling,
   failurePatterns,
+  zeroResultRecovery,
 ]
 
 process.stdout.write(HEADER)
