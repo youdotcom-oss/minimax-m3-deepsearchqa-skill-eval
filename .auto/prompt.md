@@ -45,10 +45,10 @@ you-contents MCP). Both must be set in the shell that runs the session.
 - `.minimax/skills/you-web/SKILL.md` is an unreferenced stale copy — leave it.
 
 ## Constraints
-- Must pass `bun run typecheck` and `bun test` (the correctness gate in
-  `.auto/checks.sh`). Note: `bun run biome` has a **pre-existing** unused-`block`
-  lint error in `scripts/query.ts` unrelated to this skill, so `checks.sh` runs
-  only typecheck + test (biome ignores `skills/you-web/SKILL.md` anyway).
+- Must pass `bun run check` (typecheck + test + biome) — the correctness gate in
+  `.auto/checks.sh`. `skills/you-web/SKILL.md` is markdown, which biome ignores, so
+  the gate is pure safety: it catches any accidental drift in off-limits TS files
+  without ever blocking on the skill itself.
 - Keep the skill file concise and faithful to the **current** you-search /
   you-contents tool surface (see "Signature" below).
 
