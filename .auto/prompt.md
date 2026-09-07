@@ -92,9 +92,22 @@ baseline-50, the shard overfit — back out. `.auto/baseline-skill.md` is the
 pre-sync skill snapshot.
 
 ## What's Been Tried
+
+Baseline measured directly (pre-sync current skill, seed-42 shard, 15 trials):
+`deepsearchqa_avg=0.8778`, `pass_rate=0.800`, `tool_calls/trial=14.1`.
+Note: the shard (0.88) is easier than the full 900 (production 0.7317) — the
+loop optimizes within the shard's ~0.12 headroom to 1.0; the holdout is the
+truth-check that gains generalize to the harder full distribution.
+
 | # | Change | Score | Δ% | Verdict |
 |---|--------|-------|----|---------|
-| - | (baseline = current stale skill, pre-sync) | TBD | — | initial |
+| 0 | baseline (current stale skill, pre-sync) | 0.8778 | — | reference |
+| 1 | mechanical signature-sync | TBD | — | next |
 
 ## Key Learnings
-(Populate as the session runs.)
+- Shard baseline 0.8778 at 14.1 calls/trial — already far under production's
+  28.6, so the over-calling lever is smaller on this shard than on the full
+  900. Headroom is correctness (0.88 → 1.0), not call-count.
+- 3/5 shard tasks are Single Answer (numeric/date); 2 are Set Answer (lists).
+  Set-Answer excessive-answer penalties are the likely F1 leak — push list
+  discipline.
