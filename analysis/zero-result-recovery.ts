@@ -118,12 +118,6 @@ ORDER BY score ASC, task_id ASC, trial_index ASC
 LIMIT 10
 FORMAT Vertical`.trim()
 
-function block(label: string, sql: string, out: string): string {
-  const fence = '```'
-  const text = out.endsWith('\n') ? out : `${out}\n`
-  return `${label}\n\n${fence}sql\n${sql}\n${fence}\n\n${fence}text\n${text}${fence}\n\n`
-}
-
 export async function run(): Promise<string> {
   const out1 = await runSql(sql1)
   const out2 = await runSql(sql2)
