@@ -75,12 +75,15 @@ Do not change behavior/structure in this iteration — just align param names.
 Measure to confirm no regression, keep, then iterate freely.
 
 ## Shard
-`.auto/eval-shard.jsonl` — 5 gradable tasks (3 Single + 2 Set Answer),
-`random.seed(42)`, fixed for the whole session. A fixed shard keeps the noise
-floor low (M3-generation variance only) so the autoresearch confidence signal is
-meaningful (≥2.0× ≈ real improvement). The model never sees
-`metadata.expected_answer` (only the grader does), so memorization-overfit is
-impossible; the only generalization risk is question-type skew on 5 tasks.
+`.auto/eval-shard.jsonl` — **5 moderate-difficulty tasks** (production score
+0.3–0.65, 2 Single + 3 Set Answer), `random.seed(7)`, fixed for the session.
+These have real headroom (production 0.33–0.56 → ceiling 1.0), unlike the
+original seed-42 shard which was near-saturated (4/5 at 1.0 — tuning it mostly
+chased noise on 2 stochastic leaks). Moderate-task selection is standard
+hard-example tuning, not overfitting: the model never sees `metadata.expected_answer`
+(only the grader does). The holdout (50 tasks) is the generalization truth-check.
+Previous seed-42 shard baseline was 0.83; this hard shard will baseline much
+lower (~0.4–0.5) with real room to improve.
 
 ## Holdout (truth-check, run when stalled or at session end)
 `.auto/holdout.sh [skillPath]` runs 50 held-out tasks (disjoint from the shard,
@@ -93,21 +96,30 @@ pre-sync skill snapshot.
 
 ## What's Been Tried
 
-Baseline measured directly (pre-sync current skill, seed-42 shard, 15 trials):
-`deepsearchqa_avg=0.8778`, `pass_rate=0.800`, `tool_calls/trial=14.1`.
-Note: the shard (0.88) is easier than the full 900 (production 0.7317) — the
-loop optimizes within the shard's ~0.12 headroom to 1.0; the holdout is the
-truth-check that gains generalize to the harder full distribution.
+**Shard v1 (seed-42, 5 easy tasks):** baseline 0.83 (0.8308 loop / 0.8778
+manual). Near-saturated — 4/5 tasks at 1.0; only stochastic leaks (115: 7
+excessive authors; 762: wrong-answer on France). Tuning it chased noise.
+  - iter-1: mechanical signature-sync (site:, drop offset, extraction). 0.7974
+    (within 0.047 noise). KEPT — correctness baseline (site: now functional).
+  - iter-2: tighter Phase 4 + tool budget. 0.8308 (equal baseline, noise) +
+    checks_failed on probe/ scratch (env fixed). DISCARDED.
+
+**Shard v2 (seed-7, 5 hard tasks, prod 0.33–0.56):** re-baselining now.
+Headroom is real (Set-Answer excessive leaks + Single-Answer correctness).
 
 | # | Change | Score | Δ% | Verdict |
 |---|--------|-------|----|---------|
-| 0 | baseline (current stale skill, pre-sync) | 0.8778 | — | reference |
-| 1 | mechanical signature-sync | TBD | — | next |
+| 0v1 | baseline (stale skill, easy shard) | 0.8308 | — | reference (v1) |
+| 1 | signature-sync | 0.7974 | -4% | kept (correctness) |
+| 2 | Phase4+tool budget | 0.8308 | 0% | checks_failed (env) |
+| 0v2 | baseline (synced skill, hard shard) | TBD | — | next |
 
 ## Key Learnings
-- Shard baseline 0.8778 at 14.1 calls/trial — already far under production's
-  28.6, so the over-calling lever is smaller on this shard than on the full
-  900. Headroom is correctness (0.88 → 1.0), not call-count.
-- 3/5 shard tasks are Single Answer (numeric/date); 2 are Set Answer (lists).
-  Set-Answer excessive-answer penalties are the likely F1 leak — push list
-  discipline.
+- Easy shard (v1) is near-saturated → noise-dominated, useless for tuning.
+  Switched to hard shard (v2) for real headroom.
+- Real F1 leaks observed: (a) **excessive answers** on Set Answer (115: 7 extra
+  names alongside 3 correct → F1 0.46); (b) **wrong-answer** on hard Single
+  (762: excluded France on bad reasoning). Answer-discipline targets (a);
+  (b) is a search/correctness issue, harder to fix with skill text.
+- `probe/` gitignored scratch appears mid-session and breaks full-project tsc;
+  checks.sh now scopes typecheck to tracked src via .auto/tsconfig.checks.json.
