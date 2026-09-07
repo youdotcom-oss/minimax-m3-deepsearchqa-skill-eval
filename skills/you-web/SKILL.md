@@ -41,9 +41,9 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 
 ### Phase 4: Answer
 
-1. **State the exact answer first**, before any evidence or explanation. If the answer is a single value (a name, number, date, or place), state it alone on the first line. If it is a list or set, put each item on its own line — the **exact set the question asks for**, no omissions, no extra items.
-2. Do not pad the answer with related facts, context, or hedging. The grader scores only the requested answer set; any extra item you present as part of the answer counts against you.
-3. Then give a brief evidence line with the supporting citation, and list sources.
+1. Put the answer first. If the answer has multiple items (a list or set), put each item on its own line.
+2. Include inline citations with real URLs.
+3. List your sources.
 
 ## Evidence Rules
 
@@ -60,10 +60,8 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 
 ## Tool Budget and Recovery
 
-- **Stop as soon as you have the answer.** Do not keep searching after finding it.
-- Single-value question: 1 search + 1-2 `you-contents` reads, then answer.
-- Multi-item list: 1-2 searches + 2-3 reads, then answer.
-- Hard ceiling: 8 total tool calls. If still incomplete after 8, answer with the best-supported partial answer.
+- Use no more than 10 total tool calls.
+- If you have not found a complete answer after 12 calls, synthesize the best partial answer.
 - Never finish with an empty response.
 
 ## Output Format

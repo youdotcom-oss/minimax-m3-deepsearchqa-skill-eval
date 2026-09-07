@@ -94,50 +94,37 @@ If tuned-50 ≈ baseline-50 and ≈ production 0.73, no overfit. If tuned-50 <<
 baseline-50, the shard overfit — back out. `.auto/baseline-skill.md` is the
 pre-sync skill snapshot.
 
-## What's Been Tried
+## CONCLUSION — final skill = signature-sync only (the "synced" skill)
 
-**Final tuned skill = iter1-v2** (commit a7700ae): Phase 4 "no extras" answer
-discipline + concrete tool budget. **This is the converged answer.**
+**The tuning run did NOT produce a generalizable skill-text improvement.** The
+Phase 4 "no extras" discipline (iter1-v2) scored +0.14 on the 5-task hard shard
+(5.5× shard-confidence) but **did NOT generalize** to the 50-task holdout —
+that gain was overfit to the shard. The skill was reverted to the synced state.
 
-| # | Change | Score | vs best | Verdict |
-|---|--------|-------|---------|---------|
-| 0v2 | baseline (synced skill, hard shard) | 0.7696 | — | reference |
-| 1 | Phase4 "no extras" + tool budget | 0.8901 | +15.7% | **KEEP (best)** |
-| — | confirm: re-run iter1-v2 | 0.9370 | — | keep (mean ~0.91) |
-| 2 | Output Format filtered-list | 0.8333 | -6% | discard |
-| 3 | Phase4 filter-candidates bullet | 0.8191 | -8% | discard |
-| 4 | set-enum convergence (1 search) | 0.7888 | -12% | discard |
-| 5 | realistic tool budget + partial | 0.8024 | -11% | discard |
+**Honest before/after on the SAME 50 holdout tasks (×k=3):**
+| metric | SYNCED (ref) | iter1-v2 (tuned) |
+|-------|-------------|------------------|
+| completed-trial F1 | 0.7884 (139) | 0.7875 (134) — **tied** |
+| all-trial F1 | 0.7306 | 0.7035 (slightly worse) |
+| timeouts | 3 | 8 (5 extra, different tasks) |
+| calls/trial | 20.21 | 17.28 |
 
-**Holdout validation (50 held-out tasks, ×k=3):**
-- iter1-v2 completed-trial F1 = **0.7875** (134 completed) vs production synced
-  **0.7317** (full-900) → generalizes (improvement on completed trials).
-- On 30 common easier tasks (synced-partial vs iter1-v2): synced 0.7745 ≈
-  iter1-v2 0.7577 (tied, 11 losses/9 wins, within noise). **Neutral on easier
-  tasks, +0.14 on hard tasks** → the discipline helps where there's headroom,
-  not overfit.
-- iter1-v2 cut tool calls **28.6 → 17.3/trial (-40%)** vs production.
-- **11% timeout tail** (16/150) on the hardest set-enumeration tasks — structural
-  cost of necessary per-member search; not fixable via skill text.
+iter1-v2's stricter answer discipline made the model **over-search to nail the
+exact set** on 5 set-enum tasks → timeouts where synced's lighter wording
+completed. The +0.14 shard gain was specific to those 5 tasks, not a real
+improvement. This is the overfitting risk from a 5-task shard — the loop's shard
+metric was actively misleading (it would keep re-applying the overfit change).
 
-Confidence: **5.5× noise floor** — iter1-v2 improvement is strongly real.
+**Kept**: the mechanical signature sync (iter-1) — aligns the skill to the
+current you-search surface (`site:` operator, drop `offset`, `extraction`
+enum). This is a clear correctness fix with no downside (the stale params were
+silently zod-stripped before, so `site:` filtering was broken).
 
-## Key Learnings (definitive)
-- **Calls and F1 are COUPLED.** 10 calls → 0.80 F1; 17 calls → 0.91 F1. The
-  model needs ~17 calls for set-enumeration; reducing them loses recall.
-- iter1-v2's "8-call ceiling" was a **luckily-ignored** ceiling — the model did
-  17 calls (thorough) and scored 0.91. A budget the model actually follows (10
-  calls) scores worse (0.80).
-- **ACTIVE filtering/efficiency instructions HURT** (4/4 attempts regressed):
-  output-format filtering, Phase4 filter-candidates, set-enum convergence,
-  realistic-budget. Set-enumeration tasks REQUIRE per-member searches (the
-  authoritative page doesn't have all members in one place); forcing 1-search
-  or filtering drops recall > the precision gain.
-- The winning change was a simple **PROHIBITION** ("no extra items in the
-  answer"), not an active instruction. Prohibitions land; active instructions
-  to filter/stop-early backfire.
-- The 11% timeout tail is structural (adapter 10-min limit vs 40+ call
-  set-enumeration); fixable only by raising adapter timeout (off-limits `src/`)
-  or a smarter search that finds all members in fewer calls WITHOUT recall loss.
-- `probe/` gitignored scratch breaks full-project tsc mid-session; checks.sh
-  scopes typecheck to `.auto/tsconfig.checks.json` (tracked src only).
+**Reverted**: Phase 4 "no extras" answer discipline + concrete tool budget
+(iter1-v2). Defensible idea (reduces excessive answers) but overfit the shard;
+neutral-to-slightly-worse on the real distribution.
+
+## Final state
+- `skills/you-web/SKILL.md` = synced skill (signature sync only).
+- The 4 sync edits: `include_domains`→`site:`, drop `offset`, `extraction_mode`→`extraction`.
+- iter1-v2 (the overfit shard-winner) is preserved at commit a7700ae for reference.
