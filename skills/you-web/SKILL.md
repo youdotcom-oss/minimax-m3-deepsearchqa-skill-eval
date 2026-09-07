@@ -42,9 +42,8 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 ### Phase 4: Answer
 
 1. Put the answer first. If the answer has multiple items (a list or set), put each item on its own line.
-2. Include only the items the question asks for — do not pad the answer with related facts or extra items. Keep supporting context in the evidence section, not the answer list.
-3. Include inline citations with real URLs.
-4. List your sources.
+2. Include inline citations with real URLs.
+3. List your sources.
 
 ## Evidence Rules
 
