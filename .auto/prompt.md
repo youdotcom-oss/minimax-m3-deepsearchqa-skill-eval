@@ -96,30 +96,48 @@ pre-sync skill snapshot.
 
 ## What's Been Tried
 
-**Shard v1 (seed-42, 5 easy tasks):** baseline 0.83 (0.8308 loop / 0.8778
-manual). Near-saturated — 4/5 tasks at 1.0; only stochastic leaks (115: 7
-excessive authors; 762: wrong-answer on France). Tuning it chased noise.
-  - iter-1: mechanical signature-sync (site:, drop offset, extraction). 0.7974
-    (within 0.047 noise). KEPT — correctness baseline (site: now functional).
-  - iter-2: tighter Phase 4 + tool budget. 0.8308 (equal baseline, noise) +
-    checks_failed on probe/ scratch (env fixed). DISCARDED.
+**Final tuned skill = iter1-v2** (commit a7700ae): Phase 4 "no extras" answer
+discipline + concrete tool budget. **This is the converged answer.**
 
-**Shard v2 (seed-7, 5 hard tasks, prod 0.33–0.56):** re-baselining now.
-Headroom is real (Set-Answer excessive leaks + Single-Answer correctness).
+| # | Change | Score | vs best | Verdict |
+|---|--------|-------|---------|---------|
+| 0v2 | baseline (synced skill, hard shard) | 0.7696 | — | reference |
+| 1 | Phase4 "no extras" + tool budget | 0.8901 | +15.7% | **KEEP (best)** |
+| — | confirm: re-run iter1-v2 | 0.9370 | — | keep (mean ~0.91) |
+| 2 | Output Format filtered-list | 0.8333 | -6% | discard |
+| 3 | Phase4 filter-candidates bullet | 0.8191 | -8% | discard |
+| 4 | set-enum convergence (1 search) | 0.7888 | -12% | discard |
+| 5 | realistic tool budget + partial | 0.8024 | -11% | discard |
 
-| # | Change | Score | Δ% | Verdict |
-|---|--------|-------|----|---------|
-| 0v1 | baseline (stale skill, easy shard) | 0.8308 | — | reference (v1) |
-| 1 | signature-sync | 0.7974 | -4% | kept (correctness) |
-| 2 | Phase4+tool budget | 0.8308 | 0% | checks_failed (env) |
-| 0v2 | baseline (synced skill, hard shard) | TBD | — | next |
+**Holdout validation (50 held-out tasks, ×k=3):**
+- iter1-v2 completed-trial F1 = **0.7875** (134 completed) vs production synced
+  **0.7317** (full-900) → generalizes (improvement on completed trials).
+- On 30 common easier tasks (synced-partial vs iter1-v2): synced 0.7745 ≈
+  iter1-v2 0.7577 (tied, 11 losses/9 wins, within noise). **Neutral on easier
+  tasks, +0.14 on hard tasks** → the discipline helps where there's headroom,
+  not overfit.
+- iter1-v2 cut tool calls **28.6 → 17.3/trial (-40%)** vs production.
+- **11% timeout tail** (16/150) on the hardest set-enumeration tasks — structural
+  cost of necessary per-member search; not fixable via skill text.
 
-## Key Learnings
-- Easy shard (v1) is near-saturated → noise-dominated, useless for tuning.
-  Switched to hard shard (v2) for real headroom.
-- Real F1 leaks observed: (a) **excessive answers** on Set Answer (115: 7 extra
-  names alongside 3 correct → F1 0.46); (b) **wrong-answer** on hard Single
-  (762: excluded France on bad reasoning). Answer-discipline targets (a);
-  (b) is a search/correctness issue, harder to fix with skill text.
-- `probe/` gitignored scratch appears mid-session and breaks full-project tsc;
-  checks.sh now scopes typecheck to tracked src via .auto/tsconfig.checks.json.
+Confidence: **5.5× noise floor** — iter1-v2 improvement is strongly real.
+
+## Key Learnings (definitive)
+- **Calls and F1 are COUPLED.** 10 calls → 0.80 F1; 17 calls → 0.91 F1. The
+  model needs ~17 calls for set-enumeration; reducing them loses recall.
+- iter1-v2's "8-call ceiling" was a **luckily-ignored** ceiling — the model did
+  17 calls (thorough) and scored 0.91. A budget the model actually follows (10
+  calls) scores worse (0.80).
+- **ACTIVE filtering/efficiency instructions HURT** (4/4 attempts regressed):
+  output-format filtering, Phase4 filter-candidates, set-enum convergence,
+  realistic-budget. Set-enumeration tasks REQUIRE per-member searches (the
+  authoritative page doesn't have all members in one place); forcing 1-search
+  or filtering drops recall > the precision gain.
+- The winning change was a simple **PROHIBITION** ("no extra items in the
+  answer"), not an active instruction. Prohibitions land; active instructions
+  to filter/stop-early backfire.
+- The 11% timeout tail is structural (adapter 10-min limit vs 40+ call
+  set-enumeration); fixable only by raising adapter timeout (off-limits `src/`)
+  or a smarter search that finds all members in fewer calls WITHOUT recall loss.
+- `probe/` gitignored scratch breaks full-project tsc mid-session; checks.sh
+  scopes typecheck to `.auto/tsconfig.checks.json` (tracked src only).
