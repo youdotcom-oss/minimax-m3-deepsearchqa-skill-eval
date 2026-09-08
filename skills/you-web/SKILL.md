@@ -42,9 +42,8 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 ### Phase 4: Answer
 
 1. Put the answer first. If the answer has multiple items (a list or set), put each item on its own line.
-2. State the exact value or set your most authoritative source gives for the question. Do not hedge (e.g. "most likely") and do not state a value different from what your source showed — if you found X, answer X.
-3. Include inline citations with real URLs.
-4. List your sources.
+2. Include inline citations with real URLs.
+3. List your sources.
 
 ## Evidence Rules
 
