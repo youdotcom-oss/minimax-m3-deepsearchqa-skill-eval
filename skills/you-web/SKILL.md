@@ -28,10 +28,9 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 
 1. **Search broadly**: `you-search(count=30)` to find relevant pages. Read snippets to identify which pages have the data you need.
 2. **Read content**: Call `you-contents(urls=[url1,url2])` (1-3 URLs at a time, default `formats: ["markdown"]`) on the most promising URLs. Snippets alone are unreliable — you must read the actual page to get exact values. Always read at least one page before answering.
-3. **Read before re-searching**: When a search returns promising results, read 1-2 of the top URLs before issuing another search on the same facet. Re-searching the same facet without reading first usually returns the same pages and wastes calls — reading extracts the data and tells you what's actually missing.
-4. **If incomplete**: Search again with a refined query. If the question mentions a specific source (e.g., "according to the CDC"), pin that source's domain with an inline operator: `you-search(query="... site:cdc.gov")`.
-5. **If still stuck**: Rephrase the query with broader or more common terms.
-6. Budget ~6-8 searches for hard multi-hop questions; stay within 10 total tool calls. Never finish with an empty response.
+3. **If incomplete**: Search again with a refined query. If the question mentions a specific source (e.g., "according to the CDC"), pin that source's domain with an inline operator: `you-search(query="... site:cdc.gov")`.
+4. **If still stuck**: Rephrase the query with broader or more common terms.
+5. Budget ~6-8 searches for hard multi-hop questions; stay within 10 total tool calls. Never finish with an empty response.
 
 ### Phase 3: Verify
 
