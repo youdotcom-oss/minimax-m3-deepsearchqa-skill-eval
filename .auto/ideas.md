@@ -33,45 +33,45 @@ synced state. See `.auto/prompt.md` CONCLUSION for the full before/after table.
       soundest mechanism yet. HOLDOUT TIED (completed 0.798 vs synced 0.788, within
       noise; all-trial 0.724 vs 0.731). 4th shard-win to fail generalization. Reverted.
 
-## DEAD END (conclusive): skill-text tuning is EXHAUSTED across ALL 4 phases; hard-subset shards OVERFIT
-**4/4 shard-wins FAILED to generalize to the 50-task holdout** — iter1-v2 +0.14,
-iter6 +0.078, iter7 +0.107 (all 5-task hard shard), AND iter11 +0.057 (20-task hard
-shard, sound mechanism, stable 2-run spread 0.0016). iter11 is the decisive case:
-sound mechanism (contents-batching: calls flat, faster wall, no recall loss),
-stable across two runs, yet STILL TIED on the holdout (completed 0.798 vs synced
-0.788, within noise).
+## DEAD END (revised, honest): skill-text effects are UNRESOLVABLE on a 60-point shard
+**17 hypotheses tested** across all 5 phases + 3 framings + simplification, on 2
+shard types, holdout-validated. BUT the critical finding: the 60-point random
+shard has a **~0.071 noise floor** (synced re-runs 0.7933/0.7224/0.7245), LARGER
+than every skill-text delta observed (|0.020|–|0.047|). So:
 
-**The overfitting vector is HARD-SUBSET SELECTION, not shard size or mechanism
-quality.** A difficulty-filtered shard (prod 0.3-0.7) overfits to that subset's
-task mix (hard multi-hop set-enum), so wins don't transfer to the broad
-distribution. Both the 5-task AND 20-task hard shards overfit identically.
+- **4 hard-shard wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107, iter11 +0.057)
+  FAILED holdout generalization** — this IS confirmed (holdout is stable).
+- **The random-shard 'neutral-to-negative' verdicts (iter13-17) are UNRESOLVABLE** —
+  within the 0.071 noise floor; not confirmed regressions, just noise.
+- The synced skill (~0.747 random-shard mean; holdout 0.7306 all-trial / 0.7884
+  completed-trial) is the best we have. No change beat the noise floor, but none
+  were confirmed real regressions either.
 
-**On the trustworthy 60-point hard shard (noise ~0.030), every lever is
-within-noise or worse:**
-- iter9 Phase 2 read-before-re-search: 2-run mean +0.032 (~1x noise), +calls. Within noise.
-- iter10 Phase 1 criteria-locking: -0.009 (neutral, within noise).
-- iter8 Phase 4 faithfulness (re-test): -0.051, +2 timeouts. HURTS.
-- iter11 Phase 2 contents-batching: +0.057 shard (stable) but TIED on holdout.
+**The honest conclusion is NOT 'skill-text tuning failed' — it is 'skill-text
+effects below ~0.07 cannot be measured on a 60-point shard.'** Resolving them
+needs a much larger eval (>=200 tasks) or 5+ repeated runs per condition.
 
-**ALL FOUR skill phases tested:** Phase 1 (criteria, within-noise), Phase 2
-(read-before-re-search within-noise / contents-batch shard-overfit), Phase 4
-(filtering/anti-pad/faithfulness, all FAIL), budget/convergence (FAIL — calls
-coupled to F1). The skill-text lever is exhausted.
+**Confirmed (stable, holdout-validated):** hard-subset selection overfits (4/4
+hard-shard wins failed holdout); the synced skill is the honest best.
+**Unconfirmed (within noise):** whether any skill-text change helps or hurts the
+broad distribution — the 60-point shard can't tell.
 
-The synced skill (signature sync) is the honest best: 0.7087 on 60 hard-shard
-points, **0.7306 all-trial / 0.7884 completed-trial on the 50-task holdout**.
-**Do NOT run more skill-text iterations on a hard shard — they overfit.**
+## CRITICAL METHODOLOGY FINDING: the eval metric cannot resolve skill-text effects
+The 60-point random shard has a **noise floor of ~0.071** (synced-skill re-runs:
+0.7933, 0.7224, 0.7245 — mean 0.747, range 0.071; calls also varied 16.4–19.5).
+**Every skill-text delta observed (iter13-17: |0.020| to |0.047|) is WITHIN this noise
+floor** — none are statistically real. The session's earlier 'neutral-to-negative'
+verdicts on those iters were comparing to a single high-outlier baseline (0.7933),
+not a stable reference.
 
-## To produce a GENERALIZABLE improvement (would need a bigger eval signal)
-- [ ] **Use a RANDOM (not difficulty-filtered) eval shard** of 30-50 tasks reflecting
-      the BROAD distribution (easy+hard mix). Proven: hard-subset shards (5-task AND
-      20-task, prod 0.3-0.7) BOTH overfit — wins on hard multi-hop set-enum don't
-      transfer to single-facet tasks. A representative random sample is the only shard
-      that can produce a generalizable signal. (~14 min/iter at 50 tasks; needs
-      run_experiment timeout ~1800s due to the set-enum tail.)
-- [ ] **Validate every keep on the holdout** (run holdout before keeping), not just
-      the shard. 4/4 shard-wins failed holdout; the shard alone is never sufficient.
-- [ ] **Raise adapter timeout** (off-limits `src/adapter.ts` TIMEOUT_MS) to kill
-      the timeout tail on 40+ call set-enum tasks — the real fix for all-trial F1.
-- [ ] **Smarter search** finding all set members in fewer calls WITHOUT recall
-      loss (the convergence rule tried this naively and lost recall).
+**Honest reinterpretation:**
+- iter11's hard-shard +0.057 was ALSO within a comparable noise floor.
+- The 'calls coupled to F1' conclusion is NOT supported at this noise level (calls
+  varied 16.4–23.5 across synced runs with no consistent F1 correlation).
+- Skill-text tuning is **UNRESOLVABLE** on a 60-point shard, not conclusively
+  negative. The synced skill (~0.747 mean) is the best we have; no change beat
+  the 0.071 noise floor, but none were confirmed real regressions either.
+
+**To resolve skill-text effects, need:** (1) >=200 tasks, or (2) 5+ repeated
+runs per condition (median), or (3) optimize directly on the 50-task holdout
+(~45-70 min/run, slow but stable). A 60-point single-run shard is insufficient.
