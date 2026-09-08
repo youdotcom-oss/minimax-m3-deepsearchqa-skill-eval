@@ -28,40 +28,49 @@ synced state. See `.auto/prompt.md` CONCLUSION for the full before/after table.
 - [x] **Phase 1 criteria-locking** (iter10): 0.700 vs 0.709 = -0.009 (neutral, within
       noise). Targeted wrong-entity-among-candidates failures; planning text didn't move
       the metric. Reverted: within-noise, no benefit.
+- [x] **Phase 2 contents-batching 3-5/call** (iter11): +0.057 SHARD, STABLE across 2
+      runs (0.7663, 0.7647; spread 0.0016), calls FLAT, faster wall, 0 timeouts — the
+      soundest mechanism yet. HOLDOUT TIED (completed 0.798 vs synced 0.788, within
+      noise; all-trial 0.724 vs 0.731). 4th shard-win to fail generalization. Reverted.
 
-## DEAD END (conclusive): skill-text tuning is EXHAUSTED across ALL 4 phases on a trustworthy metric
-**3/3 shard-wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107) FAILED to generalize**
-to the 50-task holdout. Then iter7 (answer-faithfulness) was **RE-TESTED on a
-trustworthy 20-task / 60-point shard**: it HURTS there too (-0.051, 0.657 vs 0.709,
-+2 timeouts). So the 5-task +0.107 was overfit/noise, now confirmed on a metric that
-can distinguish real from noise.
+## DEAD END (conclusive): skill-text tuning is EXHAUSTED across ALL 4 phases; hard-subset shards OVERFIT
+**4/4 shard-wins FAILED to generalize to the 50-task holdout** — iter1-v2 +0.14,
+iter6 +0.078, iter7 +0.107 (all 5-task hard shard), AND iter11 +0.057 (20-task hard
+shard, sound mechanism, stable 2-run spread 0.0016). iter11 is the decisive case:
+sound mechanism (contents-batching: calls flat, faster wall, no recall loss),
+stable across two runs, yet STILL TIED on the holdout (completed 0.798 vs synced
+0.788, within noise).
 
-**On the trustworthy 60-point shard (noise floor ~0.030), every remaining lever is
+**The overfitting vector is HARD-SUBSET SELECTION, not shard size or mechanism
+quality.** A difficulty-filtered shard (prod 0.3-0.7) overfits to that subset's
+task mix (hard multi-hop set-enum), so wins don't transfer to the broad
+distribution. Both the 5-task AND 20-task hard shards overfit identically.
+
+**On the trustworthy 60-point hard shard (noise ~0.030), every lever is
 within-noise or worse:**
-- **iter9 Phase 2 read-before-re-search**: 2-run mean 0.741 vs 0.709 = +0.032 (~1x noise), +calls. Within noise.
-- **iter10 Phase 1 criteria-locking**: 0.700 vs 0.709 = -0.009 (neutral, within noise).
+- iter9 Phase 2 read-before-re-search: 2-run mean +0.032 (~1x noise), +calls. Within noise.
+- iter10 Phase 1 criteria-locking: -0.009 (neutral, within noise).
+- iter8 Phase 4 faithfulness (re-test): -0.051, +2 timeouts. HURTS.
+- iter11 Phase 2 contents-batching: +0.057 shard (stable) but TIED on holdout.
 
-**ALL FOUR skill phases now tested on the trustworthy metric:** Phase 1 (criteria,
-within-noise), Phase 2 (read-before-re-search, within-noise), Phase 4 (filtering /
-anti-pad / faithfulness, all FAIL — recall loss or timeouts), Tool budget /
-convergence (FAIL — calls coupled to F1). Every skill-text lever either overfits the
-small shard, costs recall, costs time/timeout, or is within noise.
+**ALL FOUR skill phases tested:** Phase 1 (criteria, within-noise), Phase 2
+(read-before-re-search within-noise / contents-batch shard-overfit), Phase 4
+(filtering/anti-pad/faithfulness, all FAIL), budget/convergence (FAIL — calls
+coupled to F1). The skill-text lever is exhausted.
 
-The synced skill (signature sync) is the honest best: 0.7087 on 60 points, 0.7306
-all-trial / 0.7884 completed-trial on the 50-task holdout. **The skill-text lever is
-exhausted — do NOT run more skill-text iterations; they are noise-chasing.** The only
-real remaining F1 lever is the OFF-LIMITS adapter timeout (kills the stochastic 0-score
-timeout tail on 40+ call multi-hop tasks).
+The synced skill (signature sync) is the honest best: 0.7087 on 60 hard-shard
+points, **0.7306 all-trial / 0.7884 completed-trial on the 50-task holdout**.
+**Do NOT run more skill-text iterations on a hard shard — they overfit.**
 
 ## To produce a GENERALIZABLE improvement (would need a bigger eval signal)
-- [ ] **Use a larger eval shard** (≥30-50 tasks, not 5) so the loop's primary
-      metric reflects the real distribution and can't overfit 5 tasks. A 5-task
-      shard is too small for skill tuning — it overfits. (The hard-shard switch
-      helped find the excessive-answer LEVER but couldn't validate generalization.)
+- [ ] **Use a RANDOM (not difficulty-filtered) eval shard** of 30-50 tasks reflecting
+      the BROAD distribution (easy+hard mix). Proven: hard-subset shards (5-task AND
+      20-task, prod 0.3-0.7) BOTH overfit — wins on hard multi-hop set-enum don't
+      transfer to single-facet tasks. A representative random sample is the only shard
+      that can produce a generalizable signal. (~14 min/iter at 50 tasks; needs
+      run_experiment timeout ~1800s due to the set-enum tail.)
 - [ ] **Validate every keep on the holdout** (run holdout before keeping), not just
-      the shard. The shard alone misled (kept an overfit change). The holdout is
-      the truth but slow (~45-70 min); a faster/smaller holdout (20×k2) per keep
-      would catch overfitting.
+      the shard. 4/4 shard-wins failed holdout; the shard alone is never sufficient.
 - [ ] **Raise adapter timeout** (off-limits `src/adapter.ts` TIMEOUT_MS) to kill
       the timeout tail on 40+ call set-enum tasks — the real fix for all-trial F1.
 - [ ] **Smarter search** finding all set members in fewer calls WITHOUT recall
