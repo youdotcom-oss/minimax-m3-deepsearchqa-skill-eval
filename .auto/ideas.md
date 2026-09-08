@@ -57,21 +57,23 @@ hard-shard wins failed holdout); the synced skill is the honest best.
 broad distribution — the 60-point shard can't tell.
 
 ## CRITICAL METHODOLOGY FINDING: the eval metric cannot resolve skill-text effects
-The 60-point random shard has a **noise floor of ~0.071** (synced-skill re-runs:
-0.7933, 0.7224, 0.7245 — mean 0.747, range 0.071; calls also varied 16.4–19.5).
-**Every skill-text delta observed (iter13-17: |0.020| to |0.047|) is WITHIN this noise
-floor** — none are statistically real. The session's earlier 'neutral-to-negative'
-verdicts on those iters were comparing to a single high-outlier baseline (0.7933),
-not a stable reference.
+The 60-point random shard has a **noise floor of ~0.09** (4 synced-skill re-runs:
+0.7933, 0.7224, 0.7245, 0.8112 — mean 0.763, median 0.758, range 0.089; calls also
+varied 16.4–19.9). **Every skill-text delta observed in the entire session (max
+|0.057|) is WITHIN this noise floor** — none are statistically real. Single-run
+keep/discard on a 60-point shard is noise-chasing.
 
-**Honest reinterpretation:**
-- iter11's hard-shard +0.057 was ALSO within a comparable noise floor.
-- The 'calls coupled to F1' conclusion is NOT supported at this noise level (calls
-  varied 16.4–23.5 across synced runs with no consistent F1 correlation).
-- Skill-text tuning is **UNRESOLVABLE** on a 60-point shard, not conclusively
-  negative. The synced skill (~0.747 mean) is the best we have; no change beat
-  the 0.071 noise floor, but none were confirmed real regressions either.
+**This reinterprets the whole session honestly:**
+- **4 hard-shard wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107, iter11 +0.057)
+  FAILED holdout generalization** — this IS confirmed (holdout is stable, 50 tasks).
+- **All random-shard 'neutral-to-negative' verdicts (iter13-17) are UNRESOLVABLE** —
+  within the 0.09 noise floor; not confirmed regressions.
+- The 'calls coupled to F1' conclusion is NOT supported at this noise level.
+- The synced skill (median 0.758 random-shard; holdout 0.7306 all-trial / 0.7884
+  completed-trial) is the best estimate. No change beat the noise floor.
 
-**To resolve skill-text effects, need:** (1) >=200 tasks, or (2) 5+ repeated
-runs per condition (median), or (3) optimize directly on the 50-task holdout
-(~45-70 min/run, slow but stable). A 60-point single-run shard is insufficient.
+**The honest verdict is NOT 'skill-text tuning failed' — it is 'skill-text effects
+below ~0.09 cannot be measured on a 60-point single run.'** To resolve them:
+(1) >=200-300 tasks (k=3, ~2-3h/run), or (2) 5+ repeated runs per condition with
+median (~2h per condition), or (3) optimize on the 50-task holdout (but it's also
+noisy single-run). A 60-point single-run loop is fundamentally underpowered.
