@@ -31,12 +31,19 @@ trustworthy 20-task / 60-point shard**: it HURTS there too (-0.051, 0.657 vs 0.7
 +2 timeouts). So the 5-task +0.107 was overfit/noise, now confirmed on a metric that
 can distinguish real from noise.
 
-Every skill-text lever tried — filtering, anti-pad, convergence, budget,
-faithfulness — either overfits the small shard, costs recall (filtering/anti-pad),
-or costs time/timeout (faithfulness, budget). The synced skill (signature sync)
-is the honest best: 0.7087 on 60 points, 0.7306 all-trial / 0.7884 completed-trial
-on the 50-task holdout. **Do NOT run more skill-text iterations — the lever is
-exhausted on a trustworthy metric.**
+**iter9 (Phase 2 read-before-re-searching)** — first Phase-2 (investigation) lever,
+structurally different from all Phase-4 attempts. First run +0.047 (looked real),
+re-run 0.725 (regressed). Two-run mean 0.741 vs baseline 0.709 = +0.032 = **within
+the ~0.030 noise floor on 60 points** (NOT a confirmed win). The iter1-v2 pattern
+repeats: first-run wins regress on re-run. Calls went UP (21.4->23.8) — the rule
+adds read-verbosity. Reverted: within-noise + more calls = not worth shipping.
+
+Every skill-text lever tried — Phase 4 (filtering, anti-pad, convergence, budget,
+faithfulness) AND Phase 2 (read-before-re-search) — either overfits the small shard,
+costs recall, costs time/timeout, or is within noise on a trustworthy metric. The
+synced skill (signature sync) is the honest best: 0.7087 on 60 points, 0.7306
+all-trial / 0.7884 completed-trial on the 50-task holdout. **Do NOT run more skill-text
+iterations — the lever is exhausted on a trustworthy metric.**
 
 ## To produce a GENERALIZABLE improvement (would need a bigger eval signal)
 - [ ] **Use a larger eval shard** (≥30-50 tasks, not 5) so the loop's primary
