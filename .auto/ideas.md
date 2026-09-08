@@ -18,15 +18,21 @@ synced state. See `.auto/prompt.md` CONCLUSION for the full before/after table.
       HOLDOUT REJECTED — completed-trial F1 0.748 < synced 0.788 (-0.04), all-trial
       0.7229 < 0.7306. Even softened (no over-search pressure), the 'don't pad with
       extras' nudge hurts recall — the model over-filters and drops correct items.
+- [x] **Phase4 answer-faithfulness** (iter7): +0.107 SHARD (3.8x shard-confidence)
+      but HOLDOUT REJECTED/TIED — completed-trial 0.7753 vs synced 0.7884 (within
+      0.047 noise = tied), all-trial 0.7236 < 0.7306. Diagnosed from PRODUCTION data
+      (not holdout) to keep validation clean; targets hedging + self-contradiction.
+      Non-filtering, no call increase. Still didn't generalize — the shard gain was noise.
 
-## DEAD END (conclusive): skill-text answer-discipline / filtering does NOT generalize
-5/5 anti-pad/filtering variants failed to generalize (iter1-v2, iter2-v2, iter3-v2,
-iter6, + the convergence/budget attempts). ANY instruction telling the model to
-restrict/trim the answer list HURTS completed-trial recall on the real distribution.
-The excessive-answer 'leak' visible on the 5-task shard is real but NOT fixable via
-skill text — the cure (filtering) costs more recall than the precision it gains.
-The grader's excessive-answer penalty is the disease; filtering is a worse cure.
-**Do NOT pursue further Phase 4 / Output Format / filtering / anti-pad variants.**
+## DEAD END (conclusive): skill-text tuning on the 5-task shard does NOT generalize
+**3/3 shard-wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107) FAILED to generalize
+**to the holdout.** Every shard-win is overfit or noise. The 5-task shard is
+conclusively untrustworthy for skill tuning — its primary metric is not a valid
+signal. The synced skill (signature sync) is the honest best on the real
+distribution (holdout completed-trial 0.7884, all-trial 0.7306). ALL skill-text
+levers tried (filtering, anti-pad, convergence, budget, faithfulness) either
+overfit the shard or cost recall/timeout. **Do NOT run more skill-text iterations
+on the 5-task shard — it is overfitting by definition.**
 
 ## To produce a GENERALIZABLE improvement (would need a bigger eval signal)
 - [ ] **Use a larger eval shard** (≥30-50 tasks, not 5) so the loop's primary
