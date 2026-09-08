@@ -11,7 +11,7 @@ set -euo pipefail
 MODEL="minimax/minimax-m3"
 PROVIDER="openrouter"
 THINKING_LEVEL="medium"
-K=3
+K=9
 CONCURRENCY=6
 SHARD=".auto/eval-shard.jsonl"
 RUNS_DIR=".auto/runs"
