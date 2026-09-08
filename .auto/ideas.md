@@ -75,5 +75,13 @@ keep/discard on a 60-point shard is noise-chasing.
 **The honest verdict is NOT 'skill-text tuning failed' — it is 'skill-text effects
 below ~0.09 cannot be measured on a 60-point single run.'** To resolve them:
 (1) >=200-300 tasks (k=3, ~2-3h/run), or (2) 5+ repeated runs per condition with
-median (~2h per condition), or (3) optimize on the 50-task holdout (but it's also
-noisy single-run). A 60-point single-run loop is fundamentally underpowered.
+median (~2h per condition), or (3) raise k to ~9 (180 trials, ~56 min/run, noise
+~0.052). A 60-point single-run loop is fundamentally underpowered.
+
+**k=9 DECISIVE TEST (iter21-22):** raised k 3->9 in measure.sh; stable baseline
+0.7697 (agrees with k=3 mean 0.763). Tested iter16 self-checklist (the
+calls-flat, deductive hypothesis) at k=9: 0.7344 vs 0.7697 = -0.035, WITHIN the
+k=9 noise floor (~0.052). So at affordable resolution (56 min/run), the lever is
+**within-noise-of-neutral** — not helpful, not clearly harmful. k=9 resolved the
+k=3 ambiguity but is too slow for a loop, and no lever showed a >0.052 effect.
+The synced skill (0.770 at k=9) is the best at this resolution.
