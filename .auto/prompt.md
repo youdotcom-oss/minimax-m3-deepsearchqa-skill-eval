@@ -75,22 +75,19 @@ Do not change behavior/structure in this iteration — just align param names.
 Measure to confirm no regression, keep, then iterate freely.
 
 ## Shard
-`.auto/eval-shard.jsonl` — **30 moderate-difficulty tasks** (production score
-0.3–0.7, mean 0.54, 11 Single + 19 Set Answer — stratified to the ~35% Single
-base rate), `random.seed(30)`, fixed for the session. **90 data points per run**
-(30×k=3) — 6× more signal than the prior 5-task shard (15 points), enough to
-distinguish a real gain from the ~0.047 M3 noise floor.
+`.auto/eval-shard.jsonl` — **30 RANDOM representative tasks** (NOT difficulty-filtered;
+span prod 0.0–1.0, median 0.75, mean 0.65, 11 Single + 19 Set), `random.seed(100)`,
+fixed for the session. **90 data points per run** (30×k=3).
 
-**Why 30, not 5:** the prior 5-task shard was conclusively untrustworthy — **3/3
-shard-wins failed to generalize** to the 50-task holdout (iter1-v2 +0.14, iter6
-+0.078, iter7 +0.107 all overfit/noise). A 5-task shard's primary metric is not a
-valid signal. The 30-task shard is the methodology fix: enough tasks that a real
-improvement is measurable, still moderate-difficulty (real headroom, 0.3–0.7).
-The model never sees `metadata.expected_answer` (only the grader does); the
-50-task holdout remains the generalization truth-check.
+**Why random, not hard-filtered:** the prior 5-task and 20-task difficulty-filtered
+shards (prod 0.3–0.7) BOTH overfit — **4/4 shard-wins failed to generalize** to the
+holdout (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107, iter11 +0.057). The overfitting
+vector is the difficulty filter: wins on hard multi-hop set-enum tasks don't transfer
+to single-facet tasks. A random representative sample (easy+hard mix) is the only
+shard that can produce a generalizable signal. The model never sees
+`metadata.expected_answer`; the 50-task holdout remains the truth-check.
 
-~8.5 min/iter at concurrency 6. Previous 5-task shard is at
-`.auto/eval-shard-v2-5task.jsonl.bak`.
+~20-25 min/iter (set-enum tail). Requires `run_experiment` `timeout_seconds` >= 1800.
 
 ## Holdout (truth-check, run when stalled or at session end)
 `.auto/holdout.sh [skillPath]` runs 50 held-out tasks (disjoint from the shard,
