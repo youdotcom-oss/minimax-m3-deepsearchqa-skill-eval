@@ -24,15 +24,19 @@ synced state. See `.auto/prompt.md` CONCLUSION for the full before/after table.
       (not holdout) to keep validation clean; targets hedging + self-contradiction.
       Non-filtering, no call increase. Still didn't generalize — the shard gain was noise.
 
-## DEAD END (conclusive): skill-text tuning on the 5-task shard does NOT generalize
-**3/3 shard-wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107) FAILED to generalize
-**to the holdout.** Every shard-win is overfit or noise. The 5-task shard is
-conclusively untrustworthy for skill tuning — its primary metric is not a valid
-signal. The synced skill (signature sync) is the honest best on the real
-distribution (holdout completed-trial 0.7884, all-trial 0.7306). ALL skill-text
-levers tried (filtering, anti-pad, convergence, budget, faithfulness) either
-overfit the shard or cost recall/timeout. **Do NOT run more skill-text iterations
-on the 5-task shard — it is overfitting by definition.**
+## DEAD END (conclusive): skill-text tuning does NOT generalize — confirmed on a TRUSTWORTHY metric
+**3/3 shard-wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107) FAILED to generalize**
+to the 50-task holdout. Then iter7 (answer-faithfulness) was **RE-TESTED on a
+trustworthy 20-task / 60-point shard**: it HURTS there too (-0.051, 0.657 vs 0.709,
++2 timeouts). So the 5-task +0.107 was overfit/noise, now confirmed on a metric that
+can distinguish real from noise.
+
+Every skill-text lever tried — filtering, anti-pad, convergence, budget,
+faithfulness — either overfits the small shard, costs recall (filtering/anti-pad),
+or costs time/timeout (faithfulness, budget). The synced skill (signature sync)
+is the honest best: 0.7087 on 60 points, 0.7306 all-trial / 0.7884 completed-trial
+on the 50-task holdout. **Do NOT run more skill-text iterations — the lever is
+exhausted on a trustworthy metric.**
 
 ## To produce a GENERALIZABLE improvement (would need a bigger eval signal)
 - [ ] **Use a larger eval shard** (≥30-50 tasks, not 5) so the loop's primary
