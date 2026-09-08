@@ -78,10 +78,14 @@ below ~0.09 cannot be measured on a 60-point single run.'** To resolve them:
 median (~2h per condition), or (3) raise k to ~9 (180 trials, ~56 min/run, noise
 ~0.052). A 60-point single-run loop is fundamentally underpowered.
 
-**k=9 DECISIVE TEST (iter21-22):** raised k 3->9 in measure.sh; stable baseline
-0.7697 (agrees with k=3 mean 0.763). Tested iter16 self-checklist (the
-calls-flat, deductive hypothesis) at k=9: 0.7344 vs 0.7697 = -0.035, WITHIN the
-k=9 noise floor (~0.052). So at affordable resolution (56 min/run), the lever is
-**within-noise-of-neutral** — not helpful, not clearly harmful. k=9 resolved the
-k=3 ambiguity but is too slow for a loop, and no lever showed a >0.052 effect.
-The synced skill (0.770 at k=9) is the best at this resolution.
+**k=9 DECISIVE TEST (iter21-24):** raised k 3->9 in measure.sh (180 trials, ~70 min/run).
+Two k=9 baselines: 0.7697, 0.7488 (median 0.759, spread 0.021). The k=9 noise floor
+is **~0.021**, tighter than the 0.052 estimate.
+- iter16 self-checklist at k=9: 0.7344 vs 0.7697 = -0.035, slightly OUTSIDE the 0.021
+  noise -> a small REAL negative (not noise). The lever mildly hurts.
+- iter23 Output Format complete-enumeration at k=9: 0.7720 vs 0.7697 = +0.002,
+  squarely NEUTRAL.
+The k=9 methodology is sound and tight; both tested levers are confirmed
+null-or-negative (not helpful). The synced skill (k=9 median 0.759) is the best
+at this resolution. k=9 is too slow for a fast loop (~70 min/run) but is the
+trustworthy metric for one-shot hypothesis tests.
