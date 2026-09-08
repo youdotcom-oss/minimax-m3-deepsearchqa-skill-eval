@@ -20,30 +20,38 @@ synced state. See `.auto/prompt.md` CONCLUSION for the full before/after table.
       extras' nudge hurts recall — the model over-filters and drops correct items.
 - [x] **Phase4 answer-faithfulness** (iter7): +0.107 SHARD (3.8x shard-confidence)
       but HOLDOUT REJECTED/TIED — completed-trial 0.7753 vs synced 0.7884 (within
-      0.047 noise = tied), all-trial 0.7236 < 0.7306. Diagnosed from PRODUCTION data
-      (not holdout) to keep validation clean; targets hedging + self-contradiction.
-      Non-filtering, no call increase. Still didn't generalize — the shard gain was noise.
+      0.047 noise = tied), all-trial 0.7236 < 0.7306. RE-TESTED on 60-pt shard (iter8):
+      HURTS (-0.051, 0.657 vs 0.709, +2 timeouts). The 5-task +0.107 was overfit/noise.
+- [x] **Phase 2 read-before-re-search** (iter9): first run +0.047 (looked real), re-run
+      0.725. 2-run mean 0.741 vs 0.709 = +0.032 = WITHIN ~0.030 noise (not confirmed).
+      +calls (21.4->23.8). Reverted: within-noise + verbosity.
+- [x] **Phase 1 criteria-locking** (iter10): 0.700 vs 0.709 = -0.009 (neutral, within
+      noise). Targeted wrong-entity-among-candidates failures; planning text didn't move
+      the metric. Reverted: within-noise, no benefit.
 
-## DEAD END (conclusive): skill-text tuning does NOT generalize — confirmed on a TRUSTWORTHY metric
+## DEAD END (conclusive): skill-text tuning is EXHAUSTED across ALL 4 phases on a trustworthy metric
 **3/3 shard-wins (iter1-v2 +0.14, iter6 +0.078, iter7 +0.107) FAILED to generalize**
 to the 50-task holdout. Then iter7 (answer-faithfulness) was **RE-TESTED on a
 trustworthy 20-task / 60-point shard**: it HURTS there too (-0.051, 0.657 vs 0.709,
 +2 timeouts). So the 5-task +0.107 was overfit/noise, now confirmed on a metric that
 can distinguish real from noise.
 
-**iter9 (Phase 2 read-before-re-searching)** — first Phase-2 (investigation) lever,
-structurally different from all Phase-4 attempts. First run +0.047 (looked real),
-re-run 0.725 (regressed). Two-run mean 0.741 vs baseline 0.709 = +0.032 = **within
-the ~0.030 noise floor on 60 points** (NOT a confirmed win). The iter1-v2 pattern
-repeats: first-run wins regress on re-run. Calls went UP (21.4->23.8) — the rule
-adds read-verbosity. Reverted: within-noise + more calls = not worth shipping.
+**On the trustworthy 60-point shard (noise floor ~0.030), every remaining lever is
+within-noise or worse:**
+- **iter9 Phase 2 read-before-re-search**: 2-run mean 0.741 vs 0.709 = +0.032 (~1x noise), +calls. Within noise.
+- **iter10 Phase 1 criteria-locking**: 0.700 vs 0.709 = -0.009 (neutral, within noise).
 
-Every skill-text lever tried — Phase 4 (filtering, anti-pad, convergence, budget,
-faithfulness) AND Phase 2 (read-before-re-search) — either overfits the small shard,
-costs recall, costs time/timeout, or is within noise on a trustworthy metric. The
-synced skill (signature sync) is the honest best: 0.7087 on 60 points, 0.7306
-all-trial / 0.7884 completed-trial on the 50-task holdout. **Do NOT run more skill-text
-iterations — the lever is exhausted on a trustworthy metric.**
+**ALL FOUR skill phases now tested on the trustworthy metric:** Phase 1 (criteria,
+within-noise), Phase 2 (read-before-re-search, within-noise), Phase 4 (filtering /
+anti-pad / faithfulness, all FAIL — recall loss or timeouts), Tool budget /
+convergence (FAIL — calls coupled to F1). Every skill-text lever either overfits the
+small shard, costs recall, costs time/timeout, or is within noise.
+
+The synced skill (signature sync) is the honest best: 0.7087 on 60 points, 0.7306
+all-trial / 0.7884 completed-trial on the 50-task holdout. **The skill-text lever is
+exhausted — do NOT run more skill-text iterations; they are noise-chasing.** The only
+real remaining F1 lever is the OFF-LIMITS adapter timeout (kills the stochastic 0-score
+timeout tail on 40+ call multi-hop tasks).
 
 ## To produce a GENERALIZABLE improvement (would need a bigger eval signal)
 - [ ] **Use a larger eval shard** (≥30-50 tasks, not 5) so the loop's primary
