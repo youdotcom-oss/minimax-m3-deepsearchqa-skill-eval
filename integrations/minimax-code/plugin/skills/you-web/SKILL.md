@@ -26,11 +26,12 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 
 ### Phase 2: Investigate
 
-1. **Search broadly**: `you-search(count=30)` to find relevant pages. Read snippets to identify which pages have the data you need.
+1. **Search broadly**: `you-search` to find relevant pages. Read snippets to identify which pages have the data you need.
 2. **Read content**: Call `you-contents(urls=[url1,url2])` (1-3 URLs at a time, default `formats: ["markdown"]`) on the most promising URLs. Snippets alone are unreliable — you must read the actual page to get exact values. Always read at least one page before answering.
-3. **If incomplete**: Search again with a refined query. If the question mentions a specific source (e.g., "according to the CDC"), include that source's domain using `include_domains=["cdc.gov"]`.
-4. **If still stuck**: Rephrase the query. Try `offset` for fresh results.
-5. Budget ~6-8 searches for hard multi-hop questions; stay within 10 total tool calls. Never finish with an empty response.
+3. **If incomplete**: refine the query and search again. If the question names a source (e.g., "according to the CDC"), pin its domain inline: `you-search(query="... site:cdc.gov")`.
+4. **If still stuck**: rephrase the query with broader or more common terms.
+5. For a purely factual question with no named source, `knowledge: "core"` can return licensed factual answers alongside web results.
+6. Budget ~6-8 searches for hard multi-hop questions; stay within 10 total tool calls. Never finish with an empty response.
 
 ### Phase 3: Verify
 
@@ -47,7 +48,7 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 
 ## Evidence Rules
 
-- Snippets never count as reading. `extraction_mode: "highlights"` returns query-relevant passages — use it only for a single focused fact or to triage; do not treat it as full reading for complex answers.
+- Snippets never count as reading. `extraction: "highlights"` returns query-relevant passages — use it only for a single focused fact or to triage; do not treat it as full reading for complex answers.
 - For table, figure, or appendix queries, read the source artifact itself before computing filters, counts, maxima, minima, ties, or intersections — never compute from a snippet.
 - Use `html` only when layout, tables, or page structure are necessary; otherwise prefer `markdown`.
 - Add `metadata` when provenance or page identity matters.
@@ -56,7 +57,7 @@ Build answers from read evidence, not snippets alone. Answer with citations from
 
 - For multi-year or historical data, fetch each year's report separately — never rely on one aggregated source that may reprint different data.
 - Do NOT use `freshness` for historical questions; it biases toward recent pages and buries the original report.
-- If a publisher is identifiable from the query, pin it with `include_domains` even if the user did not name it explicitly.
+- If a publisher is identifiable from the query, pin it with an inline `site:` operator even if the user did not name it explicitly.
 
 ## Tool Budget and Recovery
 
