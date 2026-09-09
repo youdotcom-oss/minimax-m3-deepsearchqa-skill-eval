@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
 export const QUERY_PRESETS = [
   'summary',
   'failures',
@@ -33,7 +36,11 @@ export function isQueryPreset(value: string): value is QueryPreset {
 
 export function parseClickHouseCommand(value: string | undefined): string[] {
   const command = value?.trim()
-  return command ? command.split(/\s+/) : ['clickhouse-local']
+  if (command) return command.split(/\s+/)
+  // No explicit override: prefer the vendored binary at the repo root, then PATH.
+  const vendored = join(import.meta.dir, '..', 'clickhouse')
+  if (existsSync(vendored)) return [vendored]
+  return ['clickhouse-local']
 }
 
 export function buildClickHousePlan(options: ClickHousePlanOptions): ClickHousePlan {

@@ -10,3 +10,6 @@ data/trajectories.jsonl
 data/graded.jsonl
 data/summary.json
 .DS_Store
+# autoresearch per-iteration artifacts (regenerable; keep config/prompt/shards)
+.auto/runs/
+.auto/iter-counter

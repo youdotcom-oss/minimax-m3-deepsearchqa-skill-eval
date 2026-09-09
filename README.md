@@ -2,7 +2,7 @@
 
 Evaluates `minimax/minimax-m3` on `google/deepsearchqa` using a Pi agent, You.com MCP tools, and a research skill optimized for this harness, model, and tool surface.
 
-**MiniMax M3 Medium Reasoning with the You.com research skill reached 73.17% adjusted F1 on DeepSearchQA, competitive with the paper's GPT-5 High Reasoning F1 result. Public artifacts are available for inspection and reproduction.**
+**MiniMax M3 Medium Reasoning with the You.com research skill reached 74.85% adjusted F1 on DeepSearchQA, above the paper's GPT-5 High Reasoning F1 result. Public artifacts are available for inspection and reproduction.**
 
 ## Links
 
@@ -68,20 +68,20 @@ Use `bun run check` for local code checks. See [Reproduce](#reproduce) for the f
 
 ## Results
 
-Full run completed on 2026-08-21 with `minimax/minimax-m3` at `THINKING_LEVEL=medium`, the You.com MCP `you-search` and `you-contents` tools, and a MiniMax-oriented research skill optimized via an auto-research loop over the model, tool surface, and harness combination.
+Full run completed on 2026-09-09 with `minimax/minimax-m3` at `THINKING_LEVEL=medium`, the You.com MCP `you-search` and `you-contents` tools, and a MiniMax-oriented research skill optimized via an auto-research loop over the model, tool surface, and harness combination.
 
 These are eval results and artifact facts, not a paper claim. The uploaded `prompts.jsonl`, `results.jsonl`, `trajectories.jsonl`, `graded.jsonl`, and `summary.json` are the source of record.
 
 | Metric | Value |
 | --- | ---: |
-| Adjusted F1 score | 73.17% |
-| Adjusted pass rate (`score >= 0.8`) | 66.67% |
-| Adjusted exact pass@3 (`score >= 0.8`) | 83.93% |
-| Fully correct (`score = 1.0`) | 56.58% |
+| Adjusted F1 score | 74.85% |
+| Adjusted pass rate (`score >= 0.8`) | 67.30% |
+| Adjusted exact pass@3 (`score >= 0.8`) | 83.59% |
+| Fully correct (`score = 1.0`) | 57.90% |
 | Trials | 2,700 |
 | Tasks | 900 |
-| Total cost | $478.41 |
-| P50 / P95 latency | 54.3s / 238.8s |
+| Total cost | $599.29 |
+| P50 / P95 latency | 50.9s / 388.5s |
 
 ### Summary metrics
 
@@ -89,9 +89,9 @@ These are eval results and artifact facts, not a paper claim. The uploaded `prom
 | --- | ---: | ---: |
 | Trials | 2,700 | 2,688 |
 | Tasks | 900 | 896 |
-| Average F1 score | 72.84% | 73.17% |
-| Pass rate (`score >= 0.8`) | 66.37% | 66.67% |
-| Exact pass@3 (`score >= 0.8`) | 83.56% | 83.93% |
+| Average F1 score | 74.52% | 74.85% |
+| Pass rate (`score >= 0.8`) | 67.00% | 67.30% |
+| Exact pass@3 (`score >= 0.8`) | 83.22% | 83.59% |
 | Ungradable trials | 12 | - |
 | Ungradable tasks | 4 | - |
 
@@ -101,26 +101,26 @@ Cost totals:
 
 | Metric | Value |
 | --- | ---: |
-| Total cost | $478.41 |
-| Model cost | $328.14 |
-| You.com API cost | $150.27 |
-| Average cost per task | $0.532 |
+| Total cost | $599.29 |
+| Model cost | $290.53 |
+| You.com API cost | $308.75 |
+| Average cost per task | $0.666 |
 
 Per-trial distributions:
 
 | Metric | Average | P50 | P90 | P95 |
 | --- | ---: | ---: | ---: | ---: |
-| Cost | $0.177 | $0.095 | $0.431 | $0.606 |
-| End-to-end latency | 82.5s | 54.3s | 177.7s | 238.8s |
-| Tool calls | 28.62 | 20 | 60 | 78 |
+| Cost | $0.222 | $0.140 | $0.528 | $0.694 |
+| End-to-end latency | 98.5s | 50.9s | 231.1s | 388.5s |
+| Tool calls | 19.82 | 14 | 44 | 58 |
 
 Tool call totals:
 
 | Metric | Value |
 | --- | ---: |
-| Total tool calls | 77,286 |
-| Search calls | 24,999 |
-| Contents calls | 13,641 |
+| Total tool calls | 53,590 |
+| Search calls | 19,049 |
+| Contents calls | 7,745 |
 
 ## Benchmark context
 
@@ -130,13 +130,13 @@ Using the graded rows to compute paper-style adjusted trial metrics:
 
 | Metric | Value |
 | --- | ---: |
-| F1 | 73.17% |
-| Fully correct (`score = 1.0`) | 56.58% |
-| Fully incorrect (`score = 0.0`) | 19.01% |
-| Correct with extraneous answers | 11.31% |
-| Partially correct | 13.10% |
+| F1 | 74.85% |
+| Fully correct (`score = 1.0`) | 57.90% |
+| Fully incorrect (`score = 0.0`) | 16.66% |
+| Correct with extraneous answers | 13.98% |
+| Partially correct | 11.45% |
 
-For context, the DeepSearchQA paper's Table 4 reports GPT-5 High Reasoning at 73.24 F1, Gemini 3 Pro Preview at 76.86 F1, GPT-5 Pro High Reasoning at 78.98 F1, and Gemini Deep Research Agent at 81.90 F1. This run is therefore best described as competitive with the paper's GPT-5 High Reasoning F1 result, while still behind the top Deep Research agents and with a higher fully-incorrect rate than the leaders.
+For context, the DeepSearchQA paper's Table 4 reports GPT-5 High Reasoning at 73.24 F1, Gemini 3 Pro Preview at 76.86 F1, GPT-5 Pro High Reasoning at 78.98 F1, and Gemini Deep Research Agent at 81.90 F1. This run is therefore best described as above the paper's GPT-5 High Reasoning F1 result, while still behind the top Deep Research agents and with a higher fully-incorrect rate than the leaders.
 
 ## Eval setup
 
