@@ -143,7 +143,7 @@ For context, the DeepSearchQA paper's Table 4 reports GPT-5 High Reasoning at 73
 - Dataset: `google/deepsearchqa`
 - Model: `minimax/minimax-m3`
 - K: `3`
-- Generation concurrency: `3`
+- Generation concurrency: `24`
 - Thinking level: `medium`
 - Tools: You.com MCP `you-search` and `you-contents`
 - Judge: `deepseek/deepseek-v4-flash-0731`
@@ -231,6 +231,8 @@ If the smoke succeeds, run the full local eval:
 ```sh
 caffeinate -dimsu bun run eval
 ```
+
+`CONCURRENCY` and `GRADE_CONCURRENCY` control generation and grading parallelism and default to `24`.
 
 Then upload the generated artifacts:
 

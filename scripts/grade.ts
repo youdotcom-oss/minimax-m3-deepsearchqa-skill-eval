@@ -18,8 +18,8 @@ const TMP_OUTPUT_PATH = readStringEnv('TMP_GRADE_OUTPUT_PATH', '.tmp/grade-outpu
 const K = readIntegerEnv('K', 3, 1)
 const CONCURRENCY =
   process.env.GRADE_CONCURRENCY === undefined || process.env.GRADE_CONCURRENCY === ''
-    ? readIntegerEnv('CONCURRENCY', 3, 1)
-    : readIntegerEnv('GRADE_CONCURRENCY', 3, 1)
+    ? readIntegerEnv('CONCURRENCY', 24, 1)
+    : readIntegerEnv('GRADE_CONCURRENCY', 24, 1)
 const MODEL = readStringEnv('MODEL', 'minimax/minimax-m3')
 const GRADER_TIMEOUT_MS = readIntegerEnv('GRADER_TIMEOUT_MS', 240_000, 1)
 const GRADE_CHUNK_MAX_BYTES = readIntegerEnv('GRADE_CHUNK_MAX_BYTES', 250_000_000, 1)

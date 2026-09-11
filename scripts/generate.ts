@@ -6,7 +6,7 @@ import { collectTrialCounts } from '../src/trial-rows.ts'
 const PROMPTS_PATH = readStringEnv('PROMPTS_PATH', 'data/prompts.jsonl')
 const TRAJECTORIES_PATH = readStringEnv('TRAJECTORIES_PATH', 'data/trajectories.jsonl')
 const K = readIntegerEnv('K', 3, 1)
-const CONCURRENCY = readIntegerEnv('CONCURRENCY', 3, 1)
+const CONCURRENCY = readIntegerEnv('CONCURRENCY', 24, 1)
 const TIMEOUT_MS = readIntegerEnv('TIMEOUT_MS', 600_000, 1)
 const MAX_OUTPUT_BYTES = readIntegerEnv('MAX_OUTPUT_BYTES', 50_000_000, 1)
 const MODEL = readStringEnv('MODEL', 'minimax/minimax-m3')
