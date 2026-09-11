@@ -14,9 +14,7 @@ export interface YouApiCostSummary extends JsonObject {
   contentsCostUsd: number
 }
 
-export function estimateYouApiUsage(
-  events: Array<{ type?: string; name?: string; status?: string; input?: JsonObject; output?: JsonObject }>,
-): YouApiCostSummary {
+export function estimateYouApiUsage(events: ReadonlyArray<Record<string, unknown>>): YouApiCostSummary {
   let searchCalls = 0
   let searchExtractionPages = 0
   let contentsCalls = 0
@@ -31,13 +29,13 @@ export function estimateYouApiUsage(
     }
 
     if (isYouSearch(event.name) && event.status === 'completed') {
-      searchExtractionPages += countSearchExtractionPages(event.output)
+      searchExtractionPages += countSearchExtractionPages(asObject(event.output))
       continue
     }
 
     if (isYouContents(event.name) && event.status === 'started') {
       contentsCalls += 1
-      contentsPages += countUrls(event.input)
+      contentsPages += countUrls(asObject(event.input))
     }
   }
 
@@ -62,6 +60,18 @@ function isYouSearch(name: unknown): boolean {
   return name === 'you-search' || name === 'you_search'
 }
 
+// Cost summary for a harness trial row. Recomputes from the trial's embedded
+// trajectory events so exports stay consistent when the estimator changes;
+// falls back to the generation-time `metadata.youApiUsage` when the row has
+// no trajectory (e.g. truncated artifacts).
+export function youApiUsageForTrial(trial: Record<string, unknown> | undefined): Record<string, unknown> {
+  const trajectory = trial?.trajectory
+  if (Array.isArray(trajectory)) {
+    return estimateYouApiUsage(trajectory.map((event) => asObject(event) ?? {}))
+  }
+  return asObject(asObject(trial?.metadata)?.youApiUsage) ?? {}
+}
+
 function isYouContents(name: unknown): boolean {
   return name === 'you-contents' || name === 'you_contents'
 }
@@ -76,17 +86,23 @@ function countSearchExtractionPages(output: JsonObject | undefined): number {
   const results = asObject(root?.results)
   if (!results) return 0
 
-  return countResultsWithContents(results.web) + countResultsWithContents(results.news)
+  return countResultsWithFullPageContents(results.web) + countResultsWithFullPageContents(results.news)
 }
 
 // Search full_page extraction is billed per extracted web/news result.
-// The response indicates those pages by adding a non-empty `contents` object.
-function countResultsWithContents(value: unknown): number {
+// Under `extraction_mode: "full_page"` the API returns crawled page content in
+// `contents.markdown` / `contents.html`. Highlights mode (the default) also
+// populates `contents`, but only with `highlights` passages, which are free —
+// so only html/markdown contents count as billed extraction pages.
+function countResultsWithFullPageContents(value: unknown): number {
   if (!Array.isArray(value)) return 0
   return value.filter((result) => {
-    const object = asObject(result)
-    const contents = asObject(object?.contents)
-    return contents !== undefined && Object.keys(contents).length > 0
+    const contents = asObject(asObject(result)?.contents)
+    if (contents === undefined) return false
+    return (
+      (typeof contents.markdown === 'string' && contents.markdown.length > 0) ||
+      (typeof contents.html === 'string' && contents.html.length > 0)
+    )
   }).length
 }
 

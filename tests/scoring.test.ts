@@ -155,6 +155,33 @@ describe('You.com cost estimation', () => {
     expect(cost.contentsCostUsd).toBeCloseTo(0.002, 8)
     expect(cost.costUsd).toBeCloseTo(0.027, 8)
   })
+
+  test('does not bill highlights-mode contents as full-page extractions', () => {
+    const cost = estimateYouApiUsage([
+      { type: 'tool_call', name: 'you-search', status: 'started', input: { query: 'x' } },
+      {
+        type: 'tool_call',
+        name: 'you-search',
+        status: 'completed',
+        output: {
+          details: {
+            results: {
+              web: [
+                { url: 'https://example.com/a', contents: { highlights: ['passage'] } },
+                { url: 'https://example.com/b', description: 'snippet only' },
+                { url: 'https://example.com/c', contents: { html: '<html>full page</html>' } },
+              ],
+            },
+          },
+        },
+      },
+    ])
+
+    expect(cost.searchCalls).toBe(1)
+    expect(cost.searchExtractionPages).toBe(1)
+    expect(cost.searchExtractionCostUsd).toBeCloseTo(0.001, 8)
+    expect(cost.costUsd).toBeCloseTo(0.006, 8)
+  })
 })
 
 describe('adapter schema compatibility', () => {

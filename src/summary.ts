@@ -1,4 +1,5 @@
 import { collectLatestRowLines, streamLatestRows } from './trial-rows.ts'
+import { youApiUsageForTrial } from './you-cost.ts'
 
 type JsonObject = Record<string, unknown>
 
@@ -198,7 +199,7 @@ function toScoredTrial(row: unknown): ScoredTrial {
   const trialMetadata = asObject(trial.metadata) ?? {}
   const invocation = asObject(trial.invocation) ?? {}
   const usage = asObject(trialMetadata.usage) ?? {}
-  const youApiUsage = asObject(trialMetadata.youApiUsage) ?? {}
+  const youApiUsage = youApiUsageForTrial(trial)
   const process = asObject(object.process) ?? {}
   const answerResult = Array.isArray(object.graderResults)
     ? object.graderResults.map(asObject).find((result) => result?.id === 'deepsearchqa-answer')

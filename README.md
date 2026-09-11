@@ -80,7 +80,7 @@ These are eval results and artifact facts, not a paper claim. The uploaded `prom
 | Fully correct (`score = 1.0`) | 57.90% |
 | Trials | 2,700 |
 | Tasks | 900 |
-| Total cost | $599.29 |
+| Total cost | $399.83 |
 | P50 / P95 latency | 50.9s / 388.5s |
 
 ### Summary metrics
@@ -101,16 +101,16 @@ Cost totals:
 
 | Metric | Value |
 | --- | ---: |
-| Total cost | $599.29 |
+| Total cost | $399.83 |
 | Model cost | $290.53 |
-| You.com API cost | $308.75 |
-| Average cost per task | $0.666 |
+| You.com API cost | $109.30 |
+| Average cost per task | $0.444 |
 
 Per-trial distributions:
 
 | Metric | Average | P50 | P90 | P95 |
 | --- | ---: | ---: | ---: | ---: |
-| Cost | $0.222 | $0.140 | $0.528 | $0.694 |
+| Cost | $0.148 | $0.078 | $0.383 | $0.533 |
 | End-to-end latency | 98.5s | 50.9s | 231.1s | 388.5s |
 | Tool calls | 19.82 | 14 | 44 | 58 |
 
@@ -262,7 +262,7 @@ bun run check       # typecheck + tests
 
 - `modelCostUsd` from OpenRouter usage metadata.
 - `youApiCostUsd` estimated from You.com pricing, currently `$5/1k` Search calls and `$1/1k` full-page extraction or Contents pages.
-- `searchExtractionPages` and `searchExtractionCostUsd` for Search `extraction_mode: "full_page"` pages, counted across web and news results.
+- `searchExtractionPages` and `searchExtractionCostUsd` for Search `extraction_mode: "full_page"` pages, counted across web and news results. Highlights-mode search results are included in the per-call Search price and are not billed as extraction pages.
 - `totalCostUsd` as model plus You.com API cost.
 
 `latency.averageEndToEndMs` reports average harness-measured wall time from adapter invocation to final adapter output, using `trial.invocation.durationMs`.

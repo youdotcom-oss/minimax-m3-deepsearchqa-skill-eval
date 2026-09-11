@@ -67,12 +67,30 @@ def main() -> int:
         action="store_true",
         help="Upload only README.md, with Hugging Face dataset-card metadata prepended.",
     )
+    parser.add_argument(
+        "--files",
+        default=None,
+        help=(
+            "Comma-separated remote file names to upload instead of all artifacts. "
+            "Example: --files results.jsonl,summary.json,README.md"
+        ),
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
     repo_id = os.environ.get("HF_DATASET_REPO", DEFAULT_REPO)
     revision = os.environ.get("HF_REVISION", "main")
-    selected_files = FILES[:1] if args.card_only else FILES
+    if args.files and args.card_only:
+        raise SystemExit("--files cannot be combined with --card-only.")
+    if args.files:
+        requested = {name.strip() for name in args.files.split(",") if name.strip()}
+        known = {remote for _, remote in FILES}
+        unknown = requested - known
+        if unknown:
+            raise SystemExit(f"Unknown file(s): {', '.join(sorted(unknown))}. Known files: {', '.join(sorted(known))}")
+        selected_files = [(local, remote) for local, remote in FILES if remote in requested]
+    else:
+        selected_files = FILES[:1] if args.card_only else FILES
     files = [(root / local, remote) for local, remote in selected_files]
 
     if not args.card_only:

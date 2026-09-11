@@ -3,6 +3,7 @@ import { createWriteStream } from 'node:fs'
 import { dirname } from 'node:path'
 import { ensureDir } from './io.ts'
 import { collectLatestRowLines, streamLatestRows } from './trial-rows.ts'
+import { youApiUsageForTrial } from './you-cost.ts'
 
 type JsonObject = Record<string, unknown>
 
@@ -49,7 +50,7 @@ export function toResultRow(row: unknown): ResultRow {
   const process = asObject(object.process) ?? {}
   const trialMetadata = asObject(trial.metadata) ?? {}
   const usage = asObject(trialMetadata.usage) ?? {}
-  const youApiUsage = asObject(trialMetadata.youApiUsage) ?? {}
+  const youApiUsage = youApiUsageForTrial(trial)
   const answerResult = Array.isArray(object.graderResults)
     ? object.graderResults.map(asObject).find((grader) => grader?.id === 'deepsearchqa-answer')
     : undefined
